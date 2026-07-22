@@ -1,0 +1,12 @@
+// Bewusst ohne fachliche Modelle: Die Datenbank demonstriert zunächst nur
+// die technische Verbindung (Health-Check via SELECT 1). Gameplay-Tabellen
+// werden ausschließlich mit konkreten Features ergänzt.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

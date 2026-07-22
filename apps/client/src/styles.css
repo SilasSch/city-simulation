@@ -1,0 +1,54 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #0b1020;
+  color: #e5e7eb;
+}
+
+main {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  display: grid;
+  gap: 1.5rem;
+}
+
+.status-card,
+.game-host {
+  border: 1px solid #1f2937;
+  border-radius: 0.5rem;
+  padding: 1rem 1.25rem;
+}
+
+.status-card dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+}
+
+.status-card dt {
+  color: #9ca3af;
+}
+
+.status-card dd {
+  margin: 0;
+}
+
+.error {
+  color: #f87171;
+}
+
+.game-container {
+  width: 800px;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #111827;
+  border-radius: 0.25rem;
+}
