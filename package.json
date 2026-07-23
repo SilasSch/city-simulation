@@ -11,7 +11,8 @@
     "format:check": "prettier --check .",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "db:migrate": "prisma migrate dev --schema apps/server/prisma/schema.prisma"
+    "db:migrate": "prisma migrate dev --schema apps/server/prisma/schema.prisma",
+    "db:reset": "prisma migrate reset --schema apps/server/prisma/schema.prisma"
   },
   "devDependencies": {
     "@angular-devkit/core": "~22.0.4",
@@ -73,8 +74,10 @@
     "@nestjs/platform-express": "^11.0.0",
     "@nestjs/platform-socket.io": "^11.1.28",
     "@nestjs/websockets": "^11.1.28",
+    "@node-rs/argon2": "^2.0.2",
     "@prisma/client": "^6.19.3",
     "axios": "^1.6.0",
+    "cookie": "^1.1.1",
     "express": "^5.2.1",
     "phaser": "^4.2.1",
     "reflect-metadata": "^0.2.0",

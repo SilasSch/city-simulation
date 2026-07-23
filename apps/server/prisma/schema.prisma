@@ -1,6 +1,9 @@
-// Bewusst ohne fachliche Modelle: Die Datenbank demonstriert zunächst nur
-// die technische Verbindung (Health-Check via SELECT 1). Gameplay-Tabellen
-// werden ausschließlich mit konkreten Features ergänzt.
+// Fachliches Datenmodell. Identitätskette (ADR 0008):
+// User (technische Login-Identität) 1 ─── 1 PlayerProfile (fachliche
+// Spieler-Identität) 1 ─── n Character (steuerbare Figur).
+// User 1 ─── n Session. Der ausgewählte Character eines Profils wird über
+// einen zusammengesetzten Fremdschlüssel auf Datenbankebene gezwungen, dem
+// Profil zu gehören (siehe PlayerProfile.selectedCharacter).
 
 generator client {
   provider = "prisma-client-js"
@@ -9,4 +12,58 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  passwordHash  String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  playerProfile PlayerProfile?
+  sessions      Session[]
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model PlayerProfile {
+  id                  String      @id @default(uuid())
+  userId              String      @unique
+  user                User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Besitzer-Constraint auf DB-Ebene: der zusammengesetzte Fremdschlüssel
+  // (selectedCharacterId, id) → Character(id, playerProfileId) erzwingt,
+  // dass der ausgewählte Character DIESEM Profil gehört. Ein fremder
+  // Character scheitert am Constraint, NULL ist erlaubt (keine Auswahl).
+  selectedCharacterId String?
+  selectedCharacter   Character?  @relation("SelectedCharacter", fields: [selectedCharacterId, id], references: [id, playerProfileId], onDelete: SetNull)
+  characters          Character[]
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  // Prisma-Anforderung für die 1:1-Relation: die FK-Spalten müssen unique
+  // sein. Fachlich korrekt: ein Character ist höchstens von einem Profil
+  // ausgewählt (durch den Besitzer-FK ohnedies erzwungen).
+  @@unique([selectedCharacterId, id])
+}
+
+model Character {
+  id              String         @id @default(uuid())
+  playerProfileId String
+  playerProfile   PlayerProfile  @relation(fields: [playerProfileId], references: [id], onDelete: Cascade)
+  name            String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  selectedBy      PlayerProfile? @relation("SelectedCharacter")
+
+  // Referenzziel für den zusammengesetzten Besitzer-Fremdschlüssel.
+  @@unique([id, playerProfileId])
+  @@index([playerProfileId])
 }

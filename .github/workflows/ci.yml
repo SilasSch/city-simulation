@@ -40,8 +40,15 @@ jobs:
       - name: Prepare environment
         run: cp .env.example .env
 
+      # migrate deploy statt migrate dev: nicht-interaktiv und CI-tauglich
+      # (migrate dev fragt bei Migrations-Warnungen interaktiv nach).
       - name: Run database migrations
-        run: pnpm db:migrate
+        run: pnpm exec prisma migrate deploy --schema apps/server/prisma/schema.prisma
+
+      # Der Prisma-Client wird nicht per postinstall generiert (Schema liegt
+      # nicht im Standardpfad) — explizit vor Lint/Test/Build erzeugen.
+      - name: Generate Prisma client
+        run: pnpm exec prisma generate --schema apps/server/prisma/schema.prisma
 
       - name: Lint
         run: pnpm lint

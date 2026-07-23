@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { ProtocolErrorCode } from '@city/game-protocol';
+import { ApplicationError } from './application-error';
 
 /**
  * Konsistente Fehlerstruktur für REST-Antworten. Nach außen werden niemals
@@ -29,6 +30,25 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
+
+    // Kontrollierte fachliche Fehler: stabiler Code + Status gehen so nach
+    // außen. Kein Stack im Log nötig — der Fehler ist erwartetes Verhalten.
+    if (exception instanceof ApplicationError) {
+      this.logger.warn({
+        event: 'application-error',
+        code: exception.code,
+        status: exception.httpStatus,
+        path: request.url,
+      });
+      response.status(exception.httpStatus).json({
+        statusCode: exception.httpStatus,
+        code: exception.code,
+        message: exception.message,
+        timestamp: new Date().toISOString(),
+        path: request.url,
+      } satisfies ErrorResponseBody);
+      return;
+    }
 
     if (exception instanceof HttpException) {
       const status = exception.getStatus();

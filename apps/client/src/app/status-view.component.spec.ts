@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { of } from 'rxjs';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach } from 'vitest';
 import { HealthResponseDto } from '@city/shared-types';
 import { ApiService } from './api.service';
 import { RealtimeService } from './realtime.service';
@@ -23,7 +23,6 @@ describe('StatusViewComponent', () => {
       connectionId: signal('conn-1'),
       protocolError: signal(null),
       lastMessageType: signal('connection-established'),
-      connect: vi.fn(),
     };
 
     await TestBed.configureTestingModule({

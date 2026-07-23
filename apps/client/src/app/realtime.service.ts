@@ -34,6 +34,7 @@ export class RealtimeService implements OnDestroy {
 
   connect(clientName: string): void {
     if (this.socket) return;
+    this.protocolError.set(null);
     this.connectionState.set('connecting');
 
     this.socket = io({ transports: ['websocket'] });
@@ -107,8 +108,15 @@ export class RealtimeService implements OnDestroy {
     }
   }
 
-  ngOnDestroy(): void {
+  /** Trennt die Verbindung vollständig (z. B. nach Logout). */
+  disconnect(): void {
     this.socket?.disconnect();
     this.socket = null;
+    this.connectionState.set('disconnected');
+    this.connectionId.set(null);
+  }
+
+  ngOnDestroy(): void {
+    this.disconnect();
   }
 }

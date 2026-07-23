@@ -17,6 +17,16 @@ export const PROTOCOL_ERROR_CODES = [
   'VALIDATION_ERROR',
   'PERSISTENCE_ERROR',
   'UNEXPECTED_ERROR',
+  // Fachliche Fehlercodes (Auth + Character). Werden über REST und
+  // WebSocket konsistent verwendet.
+  'AUTHENTICATION_REQUIRED',
+  'INVALID_CREDENTIALS',
+  'SESSION_EXPIRED',
+  'EMAIL_ALREADY_TAKEN',
+  'CHARACTER_NAME_INVALID',
+  'CHARACTER_NOT_FOUND',
+  'CHARACTER_NOT_OWNED',
+  'NO_CHARACTER_SELECTED',
 ] as const;
 
 export const protocolErrorCodeSchema = z.enum(PROTOCOL_ERROR_CODES);

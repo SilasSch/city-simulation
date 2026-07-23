@@ -21,10 +21,64 @@ main {
 }
 
 .status-card,
-.game-host {
+.game-host,
+.panel {
   border: 1px solid #1f2937;
   border-radius: 0.5rem;
   padding: 1rem 1.25rem;
+}
+
+.panel form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 24rem;
+}
+
+.panel label {
+  display: grid;
+  gap: 0.25rem;
+  color: #9ca3af;
+}
+
+.panel input {
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 0.25rem;
+  color: #e5e7eb;
+  padding: 0.4rem 0.6rem;
+}
+
+.panel .actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.panel button {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 0.25rem;
+  color: #e5e7eb;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+}
+
+.panel button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.panel ul.character-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.panel ul.character-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .status-card dl {

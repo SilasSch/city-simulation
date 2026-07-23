@@ -46,7 +46,8 @@ export class StatusViewComponent implements OnInit {
       next: (health) => this.restHealth.set(health),
       error: () => this.restFailed.set(true),
     });
-    this.realtime.connect('angular-client');
+    // Der WebSocket-Aufbau wird seit ADR 0007 zentral in der App-Komponente
+    // gesteuert: erst nach erfolgreicher Session-Prüfung.
   }
 
   protected restHealthText(): string {

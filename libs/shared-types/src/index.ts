@@ -17,3 +17,24 @@ export interface HealthResponseDto {
   database: ComponentHealth;
   timestamp: string;
 }
+
+/**
+ * Antwort von POST /api/auth/register, POST /api/auth/login und
+ * GET /api/auth/session. Enthält niemals Passwort oder Session-Token —
+ * die Session läuft ausschließlich über das HTTP-only Cookie.
+ */
+export interface AuthSessionDto {
+  userId: string;
+  playerProfileId: string;
+  email: string;
+}
+
+/**
+ * Öffentliche Charakterdarstellung an der Systemgrenze. Bewusst ohne
+ * playerProfileId: Besitzerverhältnisse entscheidet allein der Server.
+ */
+export interface CharacterDto {
+  id: string;
+  name: string;
+  createdAt: string;
+}

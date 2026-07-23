@@ -11,6 +11,13 @@ const envSchema = z.object({
   SERVER_PORT: z.coerce.number().int().positive().default(3000),
   DATABASE_URL: z.string().min(1),
   CLIENT_ORIGIN: z.string().url().default('http://localhost:4200'),
+  // Lebensdauer einer Session in Stunden (fester Ablauf, kein Sliding).
+  SESSION_TTL_HOURS: z.coerce.number().int().positive().default(24),
+  // Secure-Flag des Session-Cookies. Lokal false (HTTP), in Produktion true.
+  SESSION_COOKIE_SECURE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;
