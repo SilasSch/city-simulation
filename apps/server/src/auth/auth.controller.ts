@@ -16,6 +16,7 @@ import { ApplicationError } from '../shared/application-error';
 import { AuthService } from './auth.service';
 import { CurrentPrincipal } from './authenticated-principal';
 import type { AuthenticatedPrincipal } from './authenticated-principal';
+import { AuthRateLimited, AuthRateLimitGuard } from './rate-limit.guard';
 import { SessionAuthGuard } from './session-auth.guard';
 import { SessionCookieService } from './session-cookie.service';
 
@@ -24,6 +25,7 @@ import { SessionCookieService } from './session-cookie.service';
  * Zod-Schemas und delegiert an den AuthService — keine Fachlogik.
  */
 @Controller('auth')
+@UseGuards(AuthRateLimitGuard)
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
@@ -31,6 +33,7 @@ export class AuthController {
   ) {}
 
   @Post('register')
+  @AuthRateLimited('register')
   async register(
     @Body() body: unknown,
     @Res({ passthrough: true }) response: Response,
@@ -58,6 +61,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @AuthRateLimited('login')
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() body: unknown,

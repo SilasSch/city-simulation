@@ -101,16 +101,19 @@ describe('REST character schemas', () => {
 });
 
 describe('protocol error codes', () => {
-  it('includes the stable auth and character codes', () => {
+  it('includes the stable domain error codes', () => {
     for (const code of [
       'AUTHENTICATION_REQUIRED',
       'INVALID_CREDENTIALS',
+      'RATE_LIMITED',
       'SESSION_EXPIRED',
+      'ORIGIN_NOT_ALLOWED',
       'EMAIL_ALREADY_TAKEN',
       'CHARACTER_NAME_INVALID',
       'CHARACTER_NOT_FOUND',
       'CHARACTER_NOT_OWNED',
       'NO_CHARACTER_SELECTED',
+      'WORLD_NOT_ENTERED',
     ]) {
       expect(PROTOCOL_ERROR_CODES).toContain(code);
       expect(protocolErrorCodeSchema.safeParse(code).success).toBe(true);

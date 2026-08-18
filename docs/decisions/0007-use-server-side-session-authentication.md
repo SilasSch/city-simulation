@@ -2,6 +2,7 @@
 
 - **Status:** Akzeptiert
 - **Datum:** 2026-07-22
+- **Aktualisiert:** 2026-08-12
 
 ## Kontext
 
@@ -18,26 +19,38 @@ externen Identity Provider ersetzbar sein, ohne die Fachlogik anzufassen.
 - Registrierung/Login per E-Mail + Passwort über REST
   (`POST /api/auth/register|login|logout`, `GET /api/auth/session`).
 - Passwörter werden mit **Argon2id** gehasht (OWASP-Parameter m=19 MiB, t=2,
-  p=1; `@node-rs/argon2` mit vorgefertigten Binärpaketen). Klartextpasswörter
-  werden niemals gespeichert oder geloggt.
+  p=1; `@node-rs/argon2`). Klartextpasswörter werden niemals gespeichert oder
+  geloggt. Bei unbekannter E-Mail wird ein gültiger statischer Dummy-Hash
+  geprüft, damit der dominante Argon2-Aufwand nicht durch einen Early Return
+  entfällt.
 - Session = Datenbankzeile (`Session`) mit opaquem Token (256 Bit Zufall,
   base64url) als Primärschlüssel, Ablaufzeit (`SESSION_TTL_HOURS`, Standard
   24 h, fester Ablauf ohne Sliding) und User-Referenz. Ablauf wird bei jedem
-  Zugriff geprüft; abgelaufene Sessions werden dabei gelöscht (lazy cleanup).
+  Zugriff geprüft. Zusätzlich entfernt ein indizierter Sweep abgelaufene
+  Zeilen beim Start und alle 15 Minuten; der Timer wird beim Shutdown beendet
+  und mit `unref()` vom Prozesslebenszyklus entkoppelt.
 - Das Cookie (`city_session`) ist **HTTP-only**, `SameSite=Lax`, `Path=/`,
-  mit konfigurierbarem `Secure`-Flag (`SESSION_COOKIE_SECURE`, lokal `false`,
-  produktiv `true`). Es enthält nur das Token — keine fachlichen Daten.
+  mit konfigurierbarem `Secure`-Flag. Es enthält nur das Token. Produktion
+  verlangt einen expliziten `CLIENT_ORIGIN` und
+  `SESSION_COOKIE_SECURE=true`; andernfalls schlägt die Konfiguration beim
+  Start fehl.
 - Logout löscht die Session serverseitig (idempotent) und das Cookie.
 - Fachlogik hängt nicht am Transport: Guards/Gateways lösen das Token über
   den `AuthService` in ein typisiertes `AuthenticatedPrincipal`
   (`userId`, `playerProfileId`, `sessionId`, `email`) auf. Clientseitig
   mitgesendete User-IDs werden niemals akzeptiert.
-- **WebSocket:** der Socket.IO-Handshake prüft das Session-Cookie in einer
-  Middleware. **Ohne gültige Session wird die Verbindung abgelehnt**
-  (Variante „direkt ablehnen"). Fachliche Commands setzen damit immer ein
-  Principal voraus; es gibt keinen halb-authentifizierten Zustand.
+- **Origin-Grenze:** Unsichere REST-Methoden akzeptieren nur den exakten
+  `CLIENT_ORIGIN`; dieselbe Allowlist steuert credentialed CORS,
+  Socket.IO-Polling und den echten WebSocket-Handshake. Das ist der
+  CSRF-Schutz für cookie-authentifizierte Commands.
+- **WebSocket:** Der Handshake prüft Origin und Session-Cookie. Ohne gültige
+  Session wird direkt abgelehnt. Vor jedem Protokoll-Command wird die Session
+  erneut aufgelöst; Logout oder Ablauf senden einen stabilen Fehler und
+  trennen auch einen bereits verbundenen Socket.
 - Login-Fehler sind neutral (`INVALID_CREDENTIALS` für unbekannte E-Mail wie
   für falsches Passwort, identische Message): keine Account-Existenz-Leaks.
+- Registrierung und Login besitzen getrennte prozesslokale IP-Limits vor
+  Argon2 (3 bzw. 5 Requests pro Minute, `RATE_LIMITED`/429).
 
 ## Gründe
 
@@ -69,12 +82,15 @@ externen Identity Provider ersetzbar sein, ohne die Fachlogik anzufassen.
 
 ## Konsequenzen
 
-- Neue Konfiguration: `SESSION_TTL_HOURS`, `SESSION_COOKIE_SECURE`
-  (validiert in `apps/server/src/core/config.ts`).
-- Der Angular-Client verbindet den WebSocket erst nach erfolgreicher
-  Session-Prüfung und trennt bei Logout.
-- Session-Tabellenwachstum wird durch lazy cleanup beim Zugriff begrenzt;
-  ein späterer Sweep-Job ist trivial ergänzbar.
-- Migration zu OIDC später: nur `AuthService` + Transport (Cookie/Middleware)
-  werden ersetzt; `AuthenticatedPrincipal` und alle Fachmodule bleiben
-  unverändert.
+- `SESSION_TTL_HOURS`, `SESSION_COOKIE_SECURE` und `CLIENT_ORIGIN`
+  sind fail-fast validierte Sicherheitskonfiguration.
+- Der Angular-Client verbindet erst nach erfolgreicher Session-Prüfung und
+  trennt bei Logout. Der Server verlässt sich für aktive Sockets trotzdem
+  nicht auf dieses Clientverhalten.
+- Lazy Cleanup plus periodischer Sweep begrenzen das Tabellenwachstum.
+- Die Revalidierung vor jedem WS-Command verursacht bewusst einen DB-Lookup;
+  der kleine Slice priorisiert sofortige Revocation vor Optimierung.
+- Das IP-Rate-Limit ist prozesslokal. Horizontale Skalierung erfordert einen
+  gemeinsamen Store und eine bewusst konfigurierte Proxy-/Client-IP-Grenze.
+- Eine spätere OIDC-Migration ersetzt AuthService und Transport;
+  `AuthenticatedPrincipal` und Fachmodule bleiben unverändert.

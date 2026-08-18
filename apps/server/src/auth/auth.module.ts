@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PasswordHasherService } from './password-hasher.service';
+import { AuthRateLimiter, AuthRateLimitGuard } from './rate-limit.guard';
 import { SessionAuthGuard } from './session-auth.guard';
+import { SessionCleanupService } from './session-cleanup.service';
 import { SessionCookieService } from './session-cookie.service';
 
 /**
@@ -15,8 +17,11 @@ import { SessionCookieService } from './session-cookie.service';
   providers: [
     AuthService,
     PasswordHasherService,
+    AuthRateLimiter,
+    AuthRateLimitGuard,
     SessionCookieService,
     SessionAuthGuard,
+    SessionCleanupService,
   ],
   exports: [AuthService, SessionCookieService, SessionAuthGuard],
 })

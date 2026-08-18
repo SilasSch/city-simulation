@@ -4,8 +4,12 @@ import request from 'supertest';
 import { afterAll, beforeEach, beforeAll, describe, expect, it } from 'vitest';
 import type { AuthSessionDto, CharacterDto } from '@city/shared-types';
 import { AppModule } from '../app.module';
+import { AuthRateLimiter } from '../auth/rate-limit.guard';
+import { configureApplication } from '../core/configure-application';
 import { PrismaService } from '../persistence/prisma.service';
 import { cleanDatabase } from '../../test/test-database';
+
+const CLIENT_ORIGIN = 'http://localhost:4200';
 
 /**
  * Integrationstests des Character-Vertical-Slice gegen die echte
@@ -16,13 +20,16 @@ import { cleanDatabase } from '../../test/test-database';
 describe('Character (integration)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let rateLimiter: AuthRateLimiter;
 
   beforeAll(async () => {
     app = await createApp();
     prisma = app.get(PrismaService);
+    rateLimiter = app.get(AuthRateLimiter);
   });
 
   beforeEach(async () => {
+    rateLimiter.clear();
     await cleanDatabase(prisma);
   });
 
@@ -35,7 +42,7 @@ describe('Character (integration)', () => {
       imports: [AppModule],
     }).compile();
     const instance = moduleRef.createNestApplication();
-    instance.setGlobalPrefix('api');
+    configureApplication(instance);
     await instance.init();
     return instance;
   }
@@ -51,6 +58,7 @@ describe('Character (integration)', () => {
   ): Promise<TestUser> {
     const response = await request(target.getHttpServer())
       .post('/api/auth/register')
+      .set('Origin', CLIENT_ORIGIN)
       .send({ email, password: 'geheim-123' });
     expect(response.status).toBe(201);
     const setCookie = response.headers['set-cookie'];
@@ -71,6 +79,7 @@ describe('Character (integration)', () => {
   ): Promise<request.Response> {
     return request(app.getHttpServer())
       .post('/api/characters')
+      .set('Origin', CLIENT_ORIGIN)
       .set('Cookie', user.cookie)
       .send({ name });
   }
@@ -160,6 +169,7 @@ describe('Character (integration)', () => {
 
     const response = await request(app.getHttpServer())
       .post(`/api/characters/${second.id}/select`)
+      .set('Origin', CLIENT_ORIGIN)
       .set('Cookie', user.cookie);
     expect(response.status).toBe(200);
     expect((response.body as CharacterDto).id).toBe(second.id);
@@ -178,6 +188,7 @@ describe('Character (integration)', () => {
 
     const response = await request(app.getHttpServer())
       .post(`/api/characters/${foreign.id}/select`)
+      .set('Origin', CLIENT_ORIGIN)
       .set('Cookie', userB.cookie);
     expect(response.status).toBe(403);
     expect(response.body.code).toBe('CHARACTER_NOT_OWNED');
@@ -188,12 +199,14 @@ describe('Character (integration)', () => {
 
     const response = await request(app.getHttpServer())
       .post('/api/characters/9b3c7f7e-2f0a-4c1a-9d7c-6f1a2b3c4d5e/select')
+      .set('Origin', CLIENT_ORIGIN)
       .set('Cookie', user.cookie);
     expect(response.status).toBe(404);
     expect(response.body.code).toBe('CHARACTER_NOT_FOUND');
 
     const malformed = await request(app.getHttpServer())
       .post('/api/characters/keine-uuid/select')
+      .set('Origin', CLIENT_ORIGIN)
       .set('Cookie', user.cookie);
     expect(malformed.status).toBe(400);
     expect(malformed.body.code).toBe('VALIDATION_ERROR');
@@ -239,6 +252,7 @@ describe('Character (integration)', () => {
       .body as CharacterDto;
     await request(app.getHttpServer())
       .post(`/api/characters/${second.id}/select`)
+      .set('Origin', CLIENT_ORIGIN)
       .set('Cookie', user.cookie);
 
     // Neustart simulieren: komplett neue Nest-Anwendung auf derselben
@@ -249,6 +263,7 @@ describe('Character (integration)', () => {
 
     const login = await request(app.getHttpServer())
       .post('/api/auth/login')
+      .set('Origin', CLIENT_ORIGIN)
       .send({ email: 'restart@example.com', password: 'geheim-123' });
     expect(login.status).toBe(200);
     const setCookie = login.headers['set-cookie'];

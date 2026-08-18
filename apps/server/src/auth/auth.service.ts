@@ -101,11 +101,14 @@ export class AuthService {
     });
 
     // Bewusst identischer Fehler für unbekannte E-Mail und falsches
-    // Passwort: keine Account-Existenz-Leaks (ADR 0007).
+    // Passwort: keine Account-Existenz-Leaks (ADR 0007). Auch ohne User
+    // läuft eine echte Argon2-Prüfung gegen einen Dummy-Hash.
+    const passwordValid = await this.hasher.verifyLoginPassword(
+      user?.passwordHash ?? null,
+      password,
+    );
     const credentialsValid =
-      user !== null &&
-      user.playerProfile !== null &&
-      (await this.hasher.verify(user.passwordHash, password));
+      user !== null && user.playerProfile !== null && passwordValid;
 
     if (!credentialsValid || !user.playerProfile) {
       this.logger.log({

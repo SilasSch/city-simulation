@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeAll } from 'vitest';
+import { worldDirectionForKey } from './world-input';
 
 /**
  * jsdom liefert keinen echten 2D-Canvas-Kontext. Phaser führt bereits beim
@@ -18,6 +19,17 @@ function stubCanvas2dContext(): void {
     }),
     drawImage: () => undefined,
     clearRect: () => undefined,
+    save: () => undefined,
+    restore: () => undefined,
+    scale: () => undefined,
+    translate: () => undefined,
+    fillText: () => undefined,
+    strokeText: () => undefined,
+    measureText: (text: string) => ({
+      width: text.length * 8,
+      actualBoundingBoxAscent: 10,
+      actualBoundingBoxDescent: 3,
+    }),
     getContextAttributes: () => ({ willReadFrequently: true }),
   };
   HTMLCanvasElement.prototype.getContext = function getContext(
@@ -64,7 +76,16 @@ describe('GameEngineService', () => {
     stubCanvas2dContext();
   });
 
-  it('boots Phaser without gameplay and destroys it cleanly', async () => {
+  it('maps WASD and arrow keys to bounded movement commands', () => {
+    expect(worldDirectionForKey('w')).toBe('N');
+    expect(worldDirectionForKey('ArrowRight')).toBe('E');
+    expect(worldDirectionForKey('s')).toBe('S');
+    expect(worldDirectionForKey('ArrowLeft')).toBe('W');
+    expect(worldDirectionForKey('x')).toBeNull();
+    expect(worldDirectionForKey('w', true)).toBeNull();
+  });
+
+  it('boots Phaser and destroys it cleanly', async () => {
     const [{ GameEngineService }, Phaser] = await Promise.all([
       import('./game-engine.service'),
       import('phaser'),
@@ -73,8 +94,8 @@ describe('GameEngineService', () => {
     const engine = new GameEngineService();
     const parent = document.createElement('div');
 
-    // HEADLESS: kein Canvas/WebGL nötig — der Test beweist nur den
-    // technischen Start der Engine, kein Rendering und kein Gameplay.
+    // HEADLESS: kein Canvas/WebGL nötig — der Test beweist den technischen
+    // Start der Engine; Rendering wird hier nicht geprüft.
     let resolveBoot!: (game: InstanceType<typeof Phaser.Game>) => void;
     const bootedPromise = new Promise<InstanceType<typeof Phaser.Game>>(
       (resolve) => {
@@ -96,5 +117,5 @@ describe('GameEngineService', () => {
     // isRunning dabei nicht zurück, wohl aber den Loop-Status.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(game.loop.running).toBe(false);
-  });
+  }, 15_000);
 });

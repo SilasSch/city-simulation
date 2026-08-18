@@ -1,25 +1,28 @@
 # city-simulation
 
 Technisches Fundament für eine persistente, Sims-artige Multiplayer-Stadt.
-Aktueller Stand: **erster fachlicher Vertical Slice** — Session-Authentifizierung
-und Character-Verwaltung (erstellen, auflisten, auswählen, dauerhaft laden).
-Noch keine Spielwelt.
+Aktueller Stand: **erster durchgängiger Spielwelt-Vertical-Slice** — gehärtete
+Session-Authentifizierung, Character-Verwaltung und eine persistente,
+serverautoritative Zone mit Bewegung und Reconnect.
 
 ## Stack
 
-- **Monorepo:** Nx + pnpm + TypeScript (strict)
-- **Client:** Angular (Signals) + Phaser (nur technische Grenze, kein Gameplay)
-- **Server:** NestJS (modularer Monolith), REST + Socket.IO
+- **Toolchain:** Node.js 24 (`>=24 <25`), pnpm **11.21.0**, Nx und
+  TypeScript (strict)
+- **Client:** Angular Signals + Phaser; die Engine rendert bestätigten World
+  State und sendet Bewegungs-Commands
+- **Server:** NestJS als modularer Monolith, REST + Socket.IO
 - **Datenhaltung:** PostgreSQL + Prisma (Docker Compose)
-- **Auth:** serverseitige Sessions (PostgreSQL), Argon2id-Passwort-Hashing,
-  HTTP-only Cookie (ADR 0007)
-- **Protokoll:** Zod-Schemas in `libs/game-protocol` (Client und Server teilen sie)
-- **Tests:** Vitest (Unit, Integration gegen echte Testdatenbank, WebSocket,
-  Angular, Phaser-Boot)
+- **Auth:** serverseitige Sessions, Argon2id, HTTP-only Cookie, Origin-Schutz
+  und route-spezifisches Rate-Limiting (ADR 0007)
+- **Protokoll:** gemeinsame Zod-Schemas in `libs/game-protocol`
+- **Tests:** Vitest, echte PostgreSQL-Integrationstests, WebSocket-Tests und
+  ein Playwright-End-to-End-Smoke-Test
 
 ## Schnellstart
 
-Voraussetzungen: Node 24, pnpm 11, Docker.
+Voraussetzungen: Node.js 24, pnpm 11.21.0 und Docker. Die Versionen sind
+in `package.json` festgelegt.
 
 ```bash
 pnpm install
@@ -29,44 +32,49 @@ pnpm db:migrate     # Prisma-Migrationen anwenden
 pnpm dev            # Client (4200) + Server (3000) parallel
 ```
 
-Danach: http://localhost:4200 — registrieren, Character anlegen (der erste
-wird automatisch ausgewählt), weitere Characters verwalten. Die Statusansicht
-zeigt REST-Health, WebSocket-Status (verbunden nur mit gültiger Session) und
-die letzte Protokollmeldung.
+Danach: <http://localhost:4200> — registrieren, Character anlegen (der
+erste wird automatisch ausgewählt) und die Zone **Central Square** betreten.
+WASD oder Pfeiltasten senden validierte Bewegungs-Commands; erst das
+Serverevent bewegt den Phaser-Marker. Position, Auswahl und Session werden
+beim Reload wiederhergestellt.
 
 ## Befehle
 
-| Befehl            | Zweck                                                            |
-| ----------------- | ---------------------------------------------------------------- |
-| `pnpm dev`        | Client + Server gemeinsam starten (Nx, parallel)                 |
-| `pnpm build`      | Alle Projekte bauen                                              |
-| `pnpm lint`       | Alle Projekte linten (inkl. Modulgrenzen)                        |
-| `pnpm test`       | Alle Tests ausführen                                             |
-| `pnpm format`     | Prettier auf dem gesamten Repo                                   |
-| `pnpm db:up`      | PostgreSQL starten                                               |
-| `pnpm db:down`    | PostgreSQL stoppen                                               |
-| `pnpm db:migrate` | Prisma-Migrationen anwenden                                      |
-| `pnpm db:reset`   | Datenbank zurücksetzen + Migrationen neu anwenden (Development!) |
+| Befehl              | Zweck                                                            |
+| ------------------- | ---------------------------------------------------------------- |
+| `pnpm dev`          | Client + Server gemeinsam starten (Nx, parallel)                 |
+| `pnpm build`        | Alle Projekte bauen                                              |
+| `pnpm lint`         | Alle Projekte linten (inkl. Modulgrenzen)                        |
+| `pnpm test`         | Unit- und Integrationstests aller Projekte                       |
+| `pnpm e2e`          | Playwright-Smoke-Test gegen isolierte E2E-Datenbank              |
+| `pnpm format`       | Prettier auf dem gesamten Repo anwenden                          |
+| `pnpm format:check` | Formatierung ohne Änderungen prüfen                              |
+| `pnpm db:up`        | PostgreSQL starten                                               |
+| `pnpm db:down`      | PostgreSQL stoppen                                               |
+| `pnpm db:migrate`   | Prisma-Migrationen anwenden                                      |
+| `pnpm db:reset`     | Datenbank zurücksetzen + Migrationen neu anwenden (Development!) |
 
 ## Struktur
 
 ```text
 apps/
-  client/            # Angular + Phaser (Auth, Charaktere, Status, Engine-Host)
+  client/            # Angular-Shell, World-State-Projektion und Phaser-Scene
+  client-e2e/        # Playwright-Smoke-Test + isolierter Server-/DB-Start
   server/            # NestJS modularer Monolith
-    src/auth/        # User Accounts, Sessions, Argon2id, Cookie, Guard
-    src/character/   # Character-Use-Cases (erstellen/auflisten/auswählen/laden)
-    src/core/        # validierte Konfiguration
+    src/auth/        # Accounts, Sessions, Argon2id, Rate-Limit, Cleanup
+    src/character/   # Character-Use-Cases und Auswahl
+    src/core/        # Konfiguration, Origin-/CSRF-Schutz, Security-Header
     src/health/      # REST-Health
-    src/realtime/    # Socket.IO-Gateway (session-authentifiziert)
+    src/realtime/    # validierter Socket.IO-Transport
+    src/world/       # Eintritt, Snapshot und serverautoritative Bewegung
     src/persistence/ # PrismaService (einziger DB-Zugang)
     src/shared/      # Exception-Filter, ApplicationError
 libs/
-  shared-types/      # Reine TypeScript-DTOs (frameworkfrei, keine Deps)
-  game-protocol/     # Zod-Schemas, Protokollhülle, REST-Verträge, Fehlercodes
+  shared-types/      # Reine TypeScript-DTOs
+  game-protocol/     # Zod-Schemas für REST- und WS-Verträge
 docs/
   architecture/      # Architekturüberblick
-  decisions/         # ADRs 0001–0009
+  decisions/         # ADRs 0001–0010
   development/       # Getting Started
 ```
 
@@ -84,18 +92,48 @@ docs/
 | GET     | `/api/characters/selected`   | Aktuell ausgewählten Character laden                         |
 | GET     | `/api/health`                | Technischer Health-Check                                     |
 
-Alle Character- und Session-Endpunkte erfordern eine gültige Session
-(HTTP-only Cookie). Fehler haben stabile maschinenlesbare Codes
-(`AUTHENTICATION_REQUIRED`, `INVALID_CREDENTIALS`, `SESSION_EXPIRED`,
-`EMAIL_ALREADY_TAKEN`, `CHARACTER_NAME_INVALID`, `CHARACTER_NOT_FOUND`,
-`CHARACTER_NOT_OWNED`, `NO_CHARACTER_SELECTED`, …).
+Alle Character- und Session-Endpunkte erfordern eine gültige Session im
+HTTP-only Cookie. Unsichere REST-Methoden akzeptieren ausschließlich den exakt
+konfigurierten `CLIENT_ORIGIN`; CORS verwendet dieselbe Allowlist.
 
-WebSocket (`protocol`-Kanal): der Handshake erfordert ebenfalls eine gültige
-Session; unauthentifizierte Verbindungen werden abgelehnt (ADR 0007).
+## WebSocket-World-Slice
 
-## Was bewusst NICHT enthalten ist
+Alle Nachrichten laufen über den Socket.IO-Kanal `protocol`:
 
-Keine Spielwelt: keine Zonen, keine Bewegung, kein World State, keine
-Simulation, keine LLM-Anbindung, keine NPCs. Phaser zeigt nur den technischen
-Boot-Status. Fachliche Erweiterungen folgen der Architektur in
-`docs/architecture/overview.md` und den ADRs in `docs/decisions/`.
+| Richtung      | Typ                      | Bedeutung                                      |
+| ------------- | ------------------------ | ---------------------------------------------- |
+| Client→Server | `connect`                | Technischen Protokoll-Handshake abschließen    |
+| Client→Server | `world-enter`            | `central-square` betreten                      |
+| Server→Client | `world-snapshot`         | Bestätigten Zustand aller Zonen-Entities laden |
+| Client→Server | `world-move`             | Richtung `N/E/S/W` als Command senden          |
+| Server→Client | `world-position-changed` | Persistierte Position an die Zone broadcasten  |
+
+Der Handshake prüft exakten Origin und Session. Vor **jedem** Command wird die
+Session erneut aus PostgreSQL aufgelöst; Logout oder Ablauf trennen damit auch
+einen bereits verbundenen Socket spätestens beim nächsten Command.
+
+## Sicherheitsgrenze
+
+- Registrierung und Login werden pro Route und IP vor Argon2 begrenzt
+  (3 beziehungsweise 5 Requests pro Minute, Fehler `RATE_LIMITED`/429).
+- Unbekannte Login-E-Mails durchlaufen eine echte Dummy-Argon2-Prüfung und
+  haben keinen billigen Early Return.
+- Abgelaufene Sessions werden beim Zugriff, beim Start und alle 15 Minuten
+  gelöscht; `Session.expiresAt` ist indiziert.
+- Produktion verlangt expliziten `CLIENT_ORIGIN` und
+  `SESSION_COOKIE_SECURE=true`; andernfalls startet der Server nicht.
+- REST und WebSocket nutzen dieselbe Origin-Allowlist. Security-Header
+  schließen unter anderem Framing, MIME-Sniffing und unnötige Browserrechte
+  aus; HSTS wird in Produktion gesetzt.
+
+Das Rate-Limit ist bewusst prozesslokal. Vor einem Betrieb mit mehreren
+Server-Replikaten muss der Bucket-Store geteilt werden.
+
+## Bewusster Umfang
+
+Die Spielwelt besteht absichtlich aus genau einer statischen Zone mit
+persistenten Character-Positionen. Noch nicht enthalten sind Karten-/Kollisions-
+systeme, Wirtschaft, NPCs, autonome Agenten oder Microservices. Der Client
+nutzt keine optimistische Bewegung: Phaser zeigt ausschließlich vom Server
+bestätigten Zustand. Details stehen im
+`docs/architecture/overview.md` und in ADR 0010.

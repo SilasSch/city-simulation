@@ -1,11 +1,24 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { afterAll, beforeEach, beforeAll, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import type { AuthSessionDto } from '@city/shared-types';
 import { AppModule } from '../app.module';
+import { configureApplication } from '../core/configure-application';
 import { PrismaService } from '../persistence/prisma.service';
 import { cleanDatabase } from '../../test/test-database';
+import { PasswordHasherService } from './password-hasher.service';
+import { AUTH_RATE_LIMIT_POLICIES, AuthRateLimiter } from './rate-limit.guard';
+
+const CLIENT_ORIGIN = 'http://localhost:4200';
 
 /**
  * Integrationstests gegen eine echte PostgreSQL-Testdatenbank
@@ -15,6 +28,8 @@ import { cleanDatabase } from '../../test/test-database';
 describe('Auth (integration)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let hasher: PasswordHasherService;
+  let rateLimiter: AuthRateLimiter;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -22,12 +37,16 @@ describe('Auth (integration)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    app.setGlobalPrefix('api');
+    configureApplication(app);
     await app.init();
     prisma = moduleRef.get(PrismaService);
+    hasher = moduleRef.get(PasswordHasherService);
+    rateLimiter = moduleRef.get(AuthRateLimiter);
   });
 
   beforeEach(async () => {
+    vi.restoreAllMocks();
+    rateLimiter.clear();
     await cleanDatabase(prisma);
   });
 
@@ -53,6 +72,7 @@ describe('Auth (integration)', () => {
   ): Promise<request.Response> {
     return request(app.getHttpServer())
       .post('/api/auth/register')
+      .set('Origin', CLIENT_ORIGIN)
       .send({ email, password });
   }
 
@@ -112,11 +132,87 @@ describe('Auth (integration)', () => {
     expect(badEmail.body.code).toBe('VALIDATION_ERROR');
   });
 
+  it('rejects unsafe REST requests without the exact client origin', async () => {
+    const body = { email: 'origin@example.com', password: 'geheim-123' };
+
+    const missingOrigin = await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send(body);
+    expect(missingOrigin.status).toBe(403);
+    expect(missingOrigin.body.code).toBe('ORIGIN_NOT_ALLOWED');
+
+    const opaqueOrigin = await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .set('Origin', 'null')
+      .send(body);
+    expect(opaqueOrigin.status).toBe(403);
+    expect(opaqueOrigin.body.code).toBe('ORIGIN_NOT_ALLOWED');
+
+    const foreignOrigin = await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .set('Origin', 'https://attacker.example')
+      .send(body);
+    expect(foreignOrigin.status).toBe(403);
+    expect(foreignOrigin.body.code).toBe('ORIGIN_NOT_ALLOWED');
+    expect(await prisma.user.count()).toBe(0);
+  });
+
+  it('exposes CORS response headers only to the client origin', async () => {
+    const allowed = await request(app.getHttpServer())
+      .get('/api/auth/session')
+      .set('Origin', CLIENT_ORIGIN);
+    expect(allowed.headers['access-control-allow-origin']).toBe(CLIENT_ORIGIN);
+    expect(allowed.headers['access-control-allow-credentials']).toBe('true');
+
+    const foreign = await request(app.getHttpServer())
+      .get('/api/auth/session')
+      .set('Origin', 'https://attacker.example');
+    expect(foreign.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('answers preflight only for the configured client origin', async () => {
+    const allowedPreflight = await request(app.getHttpServer())
+      .options('/api/auth/login')
+      .set('Origin', CLIENT_ORIGIN)
+      .set('Access-Control-Request-Method', 'POST');
+    expect(allowedPreflight.status).toBe(204);
+    expect(allowedPreflight.headers['access-control-allow-origin']).toBe(
+      CLIENT_ORIGIN,
+    );
+    expect(allowedPreflight.headers['access-control-allow-credentials']).toBe(
+      'true',
+    );
+
+    const foreignPreflight = await request(app.getHttpServer())
+      .options('/api/auth/login')
+      .set('Origin', 'https://attacker.example')
+      .set('Access-Control-Request-Method', 'POST');
+    expect(
+      foreignPreflight.headers['access-control-allow-origin'],
+    ).toBeUndefined();
+  });
+
+  it('sets baseline security headers without exposing Express', async () => {
+    const response = await request(app.getHttpServer()).get(
+      '/api/auth/session',
+    );
+
+    expect(response.headers['content-security-policy']).toContain(
+      "default-src 'none'",
+    );
+    expect(response.headers['permissions-policy']).toContain('camera=()');
+    expect(response.headers['referrer-policy']).toBe('no-referrer');
+    expect(response.headers['x-content-type-options']).toBe('nosniff');
+    expect(response.headers['x-frame-options']).toBe('DENY');
+    expect(response.headers['x-powered-by']).toBeUndefined();
+  });
+
   it('login with correct credentials creates a session', async () => {
     await registerUser();
 
     const response = await request(app.getHttpServer())
       .post('/api/auth/login')
+      .set('Origin', CLIENT_ORIGIN)
       .send({ email: 'player@example.com', password: 'geheim-123' });
 
     expect(response.status).toBe(200);
@@ -133,9 +229,11 @@ describe('Auth (integration)', () => {
 
     const wrongPassword = await request(app.getHttpServer())
       .post('/api/auth/login')
+      .set('Origin', CLIENT_ORIGIN)
       .send({ email: 'player@example.com', password: 'falsch-123' });
     const unknownEmail = await request(app.getHttpServer())
       .post('/api/auth/login')
+      .set('Origin', CLIENT_ORIGIN)
       .send({ email: 'unknown@example.com', password: 'geheim-123' });
 
     expect(wrongPassword.status).toBe(401);
@@ -145,6 +243,82 @@ describe('Auth (integration)', () => {
     expect(wrongPassword.body.code).toBe('INVALID_CREDENTIALS');
     expect(unknownEmail.body.code).toBe('INVALID_CREDENTIALS');
     expect(unknownEmail.body.message).toBe(wrongPassword.body.message);
+  });
+
+  it('performs Argon2 verification before rejecting an unknown login', async () => {
+    const verifyLoginPassword = vi.spyOn(hasher, 'verifyLoginPassword');
+
+    const response = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .set('Origin', CLIENT_ORIGIN)
+      .send({ email: 'unknown@example.com', password: 'geheim-123' });
+
+    expect(response.status).toBe(401);
+    expect(response.body.code).toBe('INVALID_CREDENTIALS');
+    expect(verifyLoginPassword).toHaveBeenCalledOnce();
+    expect(verifyLoginPassword).toHaveBeenCalledWith(null, 'geheim-123');
+  });
+
+  it('rate-limits login before another Argon2 verification', async () => {
+    const verifyLoginPassword = vi.spyOn(hasher, 'verifyLoginPassword');
+    let response: request.Response | undefined;
+
+    for (
+      let attempt = 0;
+      attempt <= AUTH_RATE_LIMIT_POLICIES.login.maxRequests;
+      attempt += 1
+    ) {
+      response = await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .set('Origin', CLIENT_ORIGIN)
+        .send({ email: 'unknown@example.com', password: 'geheim-123' });
+    }
+
+    expect(response?.status).toBe(429);
+    expect(response?.body.code).toBe('RATE_LIMITED');
+    expect(verifyLoginPassword).toHaveBeenCalledTimes(
+      AUTH_RATE_LIMIT_POLICIES.login.maxRequests,
+    );
+  });
+
+  it('rate-limits registration before another Argon2 hash', async () => {
+    const hash = vi.spyOn(hasher, 'hash');
+    let response: request.Response | undefined;
+
+    for (
+      let attempt = 0;
+      attempt <= AUTH_RATE_LIMIT_POLICIES.register.maxRequests;
+      attempt += 1
+    ) {
+      response = await registerUser(
+        `register-${attempt}@example.com`,
+        'geheim-123',
+      );
+    }
+
+    expect(response?.status).toBe(429);
+    expect(response?.body.code).toBe('RATE_LIMITED');
+    expect(hash).toHaveBeenCalledTimes(
+      AUTH_RATE_LIMIT_POLICIES.register.maxRequests,
+    );
+    expect(await prisma.user.count()).toBe(
+      AUTH_RATE_LIMIT_POLICIES.register.maxRequests,
+    );
+  });
+
+  it('keeps the registration limit independent from login', async () => {
+    for (
+      let attempt = 0;
+      attempt < AUTH_RATE_LIMIT_POLICIES.login.maxRequests;
+      attempt += 1
+    ) {
+      await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .set('Origin', CLIENT_ORIGIN)
+        .send({ email: 'unknown@example.com', password: 'geheim-123' });
+    }
+
+    expect((await registerUser('separate@example.com')).status).toBe(201);
   });
 
   it('session endpoint recognizes a valid session', async () => {
@@ -200,6 +374,7 @@ describe('Auth (integration)', () => {
 
     const logoutResponse = await request(app.getHttpServer())
       .post('/api/auth/logout')
+      .set('Origin', CLIENT_ORIGIN)
       .set('Cookie', cookie);
     expect(logoutResponse.status).toBe(204);
     expect(await prisma.session.count()).toBe(0);
@@ -210,9 +385,9 @@ describe('Auth (integration)', () => {
     expect(afterLogout.status).toBe(401);
 
     // Logout ohne Session bleibt idempotent erfolgreich.
-    const secondLogout = await request(app.getHttpServer()).post(
-      '/api/auth/logout',
-    );
+    const secondLogout = await request(app.getHttpServer())
+      .post('/api/auth/logout')
+      .set('Origin', CLIENT_ORIGIN);
     expect(secondLogout.status).toBe(204);
   });
 });

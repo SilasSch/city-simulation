@@ -17,9 +17,12 @@ import {
 import { AppModule } from '../app.module';
 import { AuthService } from '../auth/auth.service';
 import { SESSION_COOKIE_NAME } from '../auth/session-cookie.service';
+import { configureApplication } from '../core/configure-application';
 import { PrismaService } from '../persistence/prisma.service';
 import { cleanDatabase } from '../../test/test-database';
 import { PROTOCOL_CHANNEL } from './realtime.gateway';
+
+const CLIENT_ORIGIN = 'http://localhost:4200';
 
 /**
  * WebSocket-Tests gegen die echte Testdatenbank. Seit ADR 0007 wird der
@@ -40,6 +43,7 @@ describe('RealtimeGateway (websocket)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
+    configureApplication(app);
     await app.listen(0);
     port = (app.getHttpServer().address() as AddressInfo).port;
     auth = moduleRef.get(AuthService);
@@ -60,16 +64,23 @@ describe('RealtimeGateway (websocket)', () => {
     return `${SESSION_COOKIE_NAME}=${result.sessionToken}`;
   }
 
-  function connectSocket(cookie?: string): {
+  function connectSocket(
+    cookie?: string,
+    origin: string | null = CLIENT_ORIGIN,
+  ): {
     socket: Socket;
     connected: Promise<void>;
     failed: Promise<Error>;
   } {
+    const extraHeaders: Record<string, string> = {};
+    if (cookie !== undefined) extraHeaders['Cookie'] = cookie;
+    if (origin !== null) extraHeaders['Origin'] = origin;
+
     const socket = ioClient(`http://localhost:${port}`, {
       transports: ['websocket'],
       reconnection: false,
       forceNew: true,
-      ...(cookie !== undefined ? { extraHeaders: { Cookie: cookie } } : {}),
+      extraHeaders,
     });
     openSockets.push(socket);
     return {
@@ -103,6 +114,18 @@ describe('RealtimeGateway (websocket)', () => {
         new Promise((resolve) => setTimeout(() => resolve('timeout'), 200)),
       ]),
     ).resolves.toBe('timeout');
+  });
+
+  it('rejects connections without the exact client origin', async () => {
+    const cookie = await createSessionCookie('origin@example.com');
+
+    const missing = connectSocket(cookie, null);
+    await missing.failed;
+    expect(missing.socket.connected).toBe(false);
+
+    const foreign = connectSocket(cookie, 'https://attacker.example');
+    await foreign.failed;
+    expect(foreign.socket.connected).toBe(false);
   });
 
   it('rejects connections with an invalid session token', async () => {

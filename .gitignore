@@ -58,3 +58,6 @@ __screenshots__/
 
 # angular cache
 .angular/
+
+# Playwright artifacts
+/output/playwright/
