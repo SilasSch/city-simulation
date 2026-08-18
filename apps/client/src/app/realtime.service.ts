@@ -1,15 +1,26 @@
 import { Injectable, OnDestroy, signal } from '@angular/core';
+import { Observable, Subject } from 'rxjs';
 import { Socket, io } from 'socket.io-client';
 import {
   CONNECTION_ESTABLISHED_EVENT_TYPE,
   CONNECT_COMMAND_TYPE,
   PROTOCOL_ERROR_EVENT_TYPE,
-  PROTOCOL_VERSION,
-  ProtocolErrorPayload,
-  connectionEstablishedPayloadSchema,
+  WORLD_ENTER_COMMAND_TYPE,
+  WORLD_MOVE_COMMAND_TYPE,
+  WORLD_POSITION_CHANGED_EVENT_TYPE,
+  WORLD_SNAPSHOT_EVENT_TYPE,
+  connectPayloadSchema,
   createMessage,
+  parseServerMessage,
   protocolEnvelopeSchema,
-  protocolErrorPayloadSchema,
+  worldEnterPayloadSchema,
+  worldMovePayloadSchema,
+} from '@city/game-protocol';
+import type {
+  ParsedServerMessage,
+  ProtocolErrorPayload,
+  WorldDirection,
+  WorldZoneId,
 } from '@city/game-protocol';
 
 export type RealtimeConnectionState =
@@ -29,6 +40,10 @@ export class RealtimeService implements OnDestroy {
   readonly connectionId = signal<string | null>(null);
   readonly protocolError = signal<ProtocolErrorPayload | null>(null);
   readonly lastMessageType = signal<string | null>(null);
+
+  private readonly serverMessageSubject = new Subject<ParsedServerMessage>();
+  readonly serverMessages: Observable<ParsedServerMessage> =
+    this.serverMessageSubject.asObservable();
 
   private socket: Socket | null = null;
 
@@ -56,55 +71,57 @@ export class RealtimeService implements OnDestroy {
   }
 
   private sendConnectCommand(clientName: string): void {
-    const command = createMessage(CONNECT_COMMAND_TYPE, { clientName });
+    const payload = connectPayloadSchema.parse({ clientName });
+    this.emitValidated(CONNECT_COMMAND_TYPE, payload);
+  }
+
+  sendWorldEnter(zoneId: WorldZoneId): void {
+    if (this.connectionState() !== 'connected') return;
+    const payload = worldEnterPayloadSchema.parse({ zoneId });
+    this.emitValidated(WORLD_ENTER_COMMAND_TYPE, payload);
+  }
+
+  sendWorldMove(direction: WorldDirection): void {
+    if (this.connectionState() !== 'connected') return;
+    const payload = worldMovePayloadSchema.parse({ direction });
+    this.emitValidated(WORLD_MOVE_COMMAND_TYPE, payload);
+  }
+
+  private emitValidated<TPayload>(type: string, payload: TPayload): void {
+    const command = createMessage(type, payload);
     // Ausgehende Nachrichten werden ebenfalls gegen die Hülle geprüft.
     const validated = protocolEnvelopeSchema.parse(command);
     this.socket?.emit(PROTOCOL_CHANNEL, validated);
   }
 
-  private handleMessage(raw: unknown): void {
-    const envelope = protocolEnvelopeSchema.safeParse(raw);
-    if (!envelope.success) {
+  /** Netzwerkgrenze für rohe Serverevents; auch isoliert testbar. */
+  handleMessage(raw: unknown): void {
+    const parsed = parseServerMessage(raw);
+    if (!parsed.ok) {
       this.connectionState.set('error');
       return;
     }
 
-    if (envelope.data.version !== PROTOCOL_VERSION) {
-      this.connectionState.set('error');
-      return;
-    }
+    this.lastMessageType.set(parsed.kind);
 
-    this.lastMessageType.set(envelope.data.type);
-
-    switch (envelope.data.type) {
-      case CONNECTION_ESTABLISHED_EVENT_TYPE: {
-        const payload = connectionEstablishedPayloadSchema.safeParse(
-          envelope.data.payload,
-        );
-        if (!payload.success) {
-          this.connectionState.set('error');
-          return;
-        }
-        this.connectionId.set(payload.data.connectionId);
+    switch (parsed.kind) {
+      case CONNECTION_ESTABLISHED_EVENT_TYPE:
+        this.connectionId.set(parsed.payload.connectionId);
         this.protocolError.set(null);
         this.connectionState.set('connected');
+        this.serverMessageSubject.next(parsed);
         return;
-      }
-      case PROTOCOL_ERROR_EVENT_TYPE: {
-        const payload = protocolErrorPayloadSchema.safeParse(
-          envelope.data.payload,
-        );
-        if (!payload.success) {
-          this.connectionState.set('error');
-          return;
-        }
-        this.protocolError.set(payload.data);
-        this.connectionState.set('error');
+      case PROTOCOL_ERROR_EVENT_TYPE:
+        this.protocolError.set(parsed.payload);
+        // Fachliche Ablehnungen (z. B. stale World-Kontext) beenden den
+        // authentifizierten Socket nicht und dürfen Folgecommands nicht blockieren.
+        if (!this.connectionId()) this.connectionState.set('error');
+        this.serverMessageSubject.next(parsed);
         return;
-      }
-      default:
-        // Unbekannte Event-Typen werden nicht still akzeptiert.
-        this.connectionState.set('error');
+      case WORLD_SNAPSHOT_EVENT_TYPE:
+      case WORLD_POSITION_CHANGED_EVENT_TYPE:
+        this.serverMessageSubject.next(parsed);
+        return;
     }
   }
 
@@ -118,5 +135,6 @@ export class RealtimeService implements OnDestroy {
 
   ngOnDestroy(): void {
     this.disconnect();
+    this.serverMessageSubject.complete();
   }
 }

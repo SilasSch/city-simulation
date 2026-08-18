@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import Phaser from 'phaser';
 import { GameEngineService } from './game-engine.service';
+import { WorldStateService } from './world-state.service';
 
 /**
  * Einzige Komponente mit Phaser-Bezug. Startet die Engine außerhalb der
@@ -20,10 +21,14 @@ import { GameEngineService } from './game-engine.service';
   selector: 'app-game-host',
   template: `
     <section class="game-host">
-      <h2>Engine</h2>
+      <h2>Welt</h2>
       <p data-testid="engine-status">
         Phaser-Status: {{ engineBooted() ? 'gestartet' : 'startet…' }}
       </p>
+      <p data-testid="world-zone">
+        Zone: {{ world.zoneId() ?? 'noch nicht betreten' }}
+      </p>
+      <p>Steuerung: WASD oder Pfeiltasten</p>
       <div #gameContainer class="game-container"></div>
     </section>
   `,
@@ -35,6 +40,7 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
   protected readonly engineBooted = signal(false);
 
   private readonly engine = inject(GameEngineService);
+  protected readonly world = inject(WorldStateService);
   private readonly zone = inject(NgZone);
   private game: Phaser.Game | null = null;
 
@@ -45,6 +51,8 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
         () => {
           this.engineBooted.set(true);
         },
+        Phaser.AUTO,
+        this.world,
       );
     });
   }

@@ -21,12 +21,15 @@ export const PROTOCOL_ERROR_CODES = [
   // WebSocket konsistent verwendet.
   'AUTHENTICATION_REQUIRED',
   'INVALID_CREDENTIALS',
+  'RATE_LIMITED',
   'SESSION_EXPIRED',
+  'ORIGIN_NOT_ALLOWED',
   'EMAIL_ALREADY_TAKEN',
   'CHARACTER_NAME_INVALID',
   'CHARACTER_NOT_FOUND',
   'CHARACTER_NOT_OWNED',
   'NO_CHARACTER_SELECTED',
+  'WORLD_NOT_ENTERED',
 ] as const;
 
 export const protocolErrorCodeSchema = z.enum(PROTOCOL_ERROR_CODES);
@@ -53,6 +56,41 @@ export const connectPayloadSchema = z.object({
 });
 export type ConnectPayload = z.infer<typeof connectPayloadSchema>;
 
+// --- World (minimaler server-autoritärer Vertical Slice) ---
+
+/** Genau eine Zone und ein gemeinsames Koordinatensystem für diesen Slice. */
+export const WORLD_ZONE_ID = 'central-square' as const;
+export const WORLD_COORDINATE_MIN = 0;
+export const WORLD_COORDINATE_MAX = 100;
+export const WORLD_SPAWN_COORDINATE = 50;
+export const WORLD_MOVE_STEP = 5;
+
+export const worldZoneIdSchema = z.literal(WORLD_ZONE_ID);
+export type WorldZoneId = z.infer<typeof worldZoneIdSchema>;
+
+export const worldDirectionSchema = z.enum(['N', 'E', 'S', 'W']);
+export type WorldDirection = z.infer<typeof worldDirectionSchema>;
+
+export const worldEntitySchema = z.object({
+  characterId: z.string().uuid(),
+  name: z.string().min(1).max(32),
+  x: z.number().int().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
+  y: z.number().int().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
+});
+export type WorldEntity = z.infer<typeof worldEntitySchema>;
+
+export const WORLD_ENTER_COMMAND_TYPE = 'world-enter';
+export const worldEnterPayloadSchema = z.object({
+  zoneId: worldZoneIdSchema,
+});
+export type WorldEnterPayload = z.infer<typeof worldEnterPayloadSchema>;
+
+export const WORLD_MOVE_COMMAND_TYPE = 'world-move';
+export const worldMovePayloadSchema = z.object({
+  direction: worldDirectionSchema,
+});
+export type WorldMovePayload = z.infer<typeof worldMovePayloadSchema>;
+
 // --- Events (Server -> Client): Zustandsänderung ist bereits erfolgt ---
 
 export const CONNECTION_ESTABLISHED_EVENT_TYPE = 'connection-established';
@@ -64,6 +102,22 @@ export const connectionEstablishedPayloadSchema = z.object({
 });
 export type ConnectionEstablishedPayload = z.infer<
   typeof connectionEstablishedPayloadSchema
+>;
+
+export const WORLD_SNAPSHOT_EVENT_TYPE = 'world-snapshot';
+export const worldSnapshotPayloadSchema = z.object({
+  zoneId: worldZoneIdSchema,
+  selfCharacterId: z.string().uuid(),
+  entities: z.array(worldEntitySchema),
+});
+export type WorldSnapshotPayload = z.infer<typeof worldSnapshotPayloadSchema>;
+
+export const WORLD_POSITION_CHANGED_EVENT_TYPE = 'world-position-changed';
+export const worldPositionChangedPayloadSchema = z.object({
+  entity: worldEntitySchema,
+});
+export type WorldPositionChangedPayload = z.infer<
+  typeof worldPositionChangedPayloadSchema
 >;
 
 // --- Error Events (Server -> Client): Nachricht wurde abgelehnt ---

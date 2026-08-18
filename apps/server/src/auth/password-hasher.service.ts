@@ -15,6 +15,12 @@ const HASH_OPTIONS: Options = {
   parallelism: 1,
 };
 
+// Statischer Argon2id-Hash eines zufälligen, nicht verwendeten Passworts.
+// Er sorgt dafür, dass auch ein Login mit unbekannter E-Mail genau eine
+// teure Argon2-Prüfung ausführt. Der Hash ist kein Geheimnis.
+const DUMMY_PASSWORD_HASH =
+  '$argon2id$v=19$m=19456,t=2,p=1$Q+OH7gZ/+KXEwL1ruIO+/A$fjaaNzhLq5HZwauyfYbuPRPed4AeVqMf6qT67r01tqo';
+
 /**
  * Einzige Stelle, die Passwörter hasht oder prüft (Argon2id, OWASP-
  * Empfehlung m=19 MiB / t=2 / p=1). Salz wird von der Bibliothek zufällig
@@ -35,5 +41,18 @@ export class PasswordHasherService {
       // nicht als Systemfehler.
       return false;
     }
+  }
+
+  /**
+   * Login-spezifische Prüfung mit konstantem Argon2-Arbeitsfaktor: Fehlt
+   * ein gespeicherter Hash, wird stattdessen ein gültiger Dummy-Hash
+   * geprüft. Das Ergebnis darf nur zusammen mit dem gefundenen User
+   * ausgewertet werden.
+   */
+  async verifyLoginPassword(
+    passwordHash: string | null,
+    plainPassword: string,
+  ): Promise<boolean> {
+    return this.verify(passwordHash ?? DUMMY_PASSWORD_HASH, plainPassword);
   }
 }

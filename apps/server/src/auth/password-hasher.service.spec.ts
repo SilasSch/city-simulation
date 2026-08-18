@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PasswordHasherService } from './password-hasher.service';
 
 describe('PasswordHasherService', () => {
@@ -23,5 +23,19 @@ describe('PasswordHasherService', () => {
 
   it('rejects malformed hashes without throwing', async () => {
     expect(await hasher.verify('kein-phc-string', 'passwort')).toBe(false);
+  });
+
+  it('performs a real hash verification for an unknown login', async () => {
+    const verify = vi.spyOn(hasher, 'verify');
+
+    await expect(
+      hasher.verifyLoginPassword(null, 'beliebiges-passwort'),
+    ).resolves.toBe(false);
+
+    expect(verify).toHaveBeenCalledOnce();
+    expect(verify).toHaveBeenCalledWith(
+      expect.stringMatching(/^\$argon2id\$/),
+      'beliebiges-passwort',
+    );
   });
 });

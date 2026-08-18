@@ -32,6 +32,7 @@ model Session {
   createdAt DateTime @default(now())
 
   @@index([userId])
+  @@index([expiresAt])
 }
 
 model PlayerProfile {
@@ -55,15 +56,30 @@ model PlayerProfile {
 }
 
 model Character {
-  id              String         @id @default(uuid())
+  id              String               @id @default(uuid())
   playerProfileId String
-  playerProfile   PlayerProfile  @relation(fields: [playerProfileId], references: [id], onDelete: Cascade)
+  playerProfile   PlayerProfile        @relation(fields: [playerProfileId], references: [id], onDelete: Cascade)
   name            String
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  selectedBy      PlayerProfile? @relation("SelectedCharacter")
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  selectedBy      PlayerProfile?       @relation("SelectedCharacter")
+  worldState      CharacterWorldState?
 
   // Referenzziel für den zusammengesetzten Besitzer-Fremdschlüssel.
   @@unique([id, playerProfileId])
   @@index([playerProfileId])
+}
+
+// Persistenter, serverautoritärer Zustand eines Characters in der Spielwelt.
+// Die Zone selbst bleibt für den minimalen Slice eine statische Codekonstante.
+model CharacterWorldState {
+  characterId String    @id
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  zoneId      String
+  x           Int
+  y           Int
+  revision    Int       @default(0)
+  updatedAt   DateTime  @updatedAt
+
+  @@index([zoneId])
 }
