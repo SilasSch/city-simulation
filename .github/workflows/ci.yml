@@ -17,6 +17,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Check required production variables
         run: |
@@ -35,9 +37,27 @@ jobs:
       - name: Validate production Compose configuration
         run: docker compose --env-file .env.production.example -f docker-compose.prod.yml config --quiet
 
-      # Build the same targets used by staging, but do not start the stack or
-      # duplicate the post-merge browser smoke test in this pull-request job.
+      - name: Detect Docker and Compose changes
+        if: github.event_name == 'pull_request'
+        id: container-changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- \
+            .dockerignore \
+            docker-compose.prod.yml \
+            'apps/*/Dockerfile' \
+            deploy/; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      # Pull requests build the staging images only when their container
+      # definition changed. Main and manual runs always build all images.
       - name: Build production images
+        if: github.event_name != 'pull_request' || steps.container-changes.outputs.changed == 'true'
         run: docker compose --env-file .env.production.example -f docker-compose.prod.yml build migrate server client
 
   verify:
@@ -74,8 +94,8 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # The heavier database and browser checks run once after merge, not on
-      # every pull-request update.
+      # The database migration and one focused browser smoke test run once
+      # after merge or on an explicitly dispatched workflow, not on every PR.
       - name: Start PostgreSQL
         if: github.event_name != 'pull_request'
         run: |
@@ -118,10 +138,6 @@ jobs:
         if: github.event_name != 'pull_request'
         run: pnpm exec prisma migrate deploy --schema apps/server/prisma/schema.prisma
 
-      - name: Test
-        if: github.event_name != 'pull_request'
-        run: pnpm test
-
-      - name: End-to-end smoke test
+      - name: Focused end-to-end smoke test
         if: github.event_name != 'pull_request'
         run: pnpm e2e

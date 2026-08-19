@@ -77,9 +77,13 @@ Konfiguration nicht in Logs oder Tickets ausgeben.
 
 Die CI führt dieselbe statische Compose-Validierung mit den ungefährlichen
 Beispielwerten aus und prüft zusätzlich, dass eine fehlende Pflichtvariable mit
-einem verständlichen Hinweis abgewiesen wird. Danach baut sie die
-Produktionsziele für Migration, Server und Client. Sie startet weder Container
-noch eine Datenbank und führt keinen zusätzlichen Browser-Test aus.
+einem verständlichen Hinweis abgewiesen wird. Auf Pull Requests baut sie die
+Produktionsziele für Migration, Server und Client nur, wenn sich
+`.dockerignore`, Compose, ein Dockerfile oder die Dateien unter `deploy/`
+ändern. Läufe auf `main` und manuell gestartete Workflows bauen die Images
+immer. Normale Pull Requests bleiben bei Format-, Lint- und Build-Prüfungen;
+nach dem Merge beziehungsweise bei einem manuellen Lauf folgen einmalig die
+Datenbankmigration und der fokussierte Browser-Smoke-Test.
 
 ## Erstinstallation
 
