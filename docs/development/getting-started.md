@@ -37,11 +37,18 @@ Erwartung:
    (ADR 0009). Weitere Characters können angelegt und ausgewählt werden.
 3. **Welt betreten:** Sobald Session, WebSocket und Auswahl bereit sind, sendet
    der Client `world-enter` für `central-square` und rendert den Snapshot.
-4. **Bewegen:** WASD oder Pfeiltasten senden Richtungs-Commands. Der Marker
-   bewegt sich erst nach dem persistierten Serverevent.
-5. **Reload / Reconnect:** Session, Character-Auswahl und Weltposition werden
-   wiederhergestellt; eine neue Socket-Verbindung fordert erneut den Snapshot.
-6. **Abmelden:** Session und Cookie werden invalidiert, WebSocket und lokale
+4. **Bewegen:** WASD oder Pfeiltasten senden Richtungs-Commands. Collider
+   blockieren Gebäude, Brunnen und Zonengrenzen serverseitig; der Marker bewegt
+   sich erst nach dem persistierten Serverevent.
+5. **Multiplayer:** Weitere verbundene Characters erscheinen und verschwinden
+   über Join-/Leave-Events; mehrere Tabs desselben Characters zählen einmal.
+6. **Rasten:** Zur südlichen Bank bewegen und die Rast-Aktion wählen. Der Server
+   bestätigt Start, Fortschritt und Energiegewinn. Eine Bewegung oder der letzte
+   Disconnect bricht die laufende Bank-Interaktion ab.
+7. **Reload / Reconnect:** Session, Character-Auswahl, Weltposition, Energie und
+   Simulationszeit werden wiederhergestellt; eine neue Socket-Verbindung fordert
+   erneut den Snapshot.
+8. **Abmelden:** Session und Cookie werden invalidiert, WebSocket und lokale
    Projektionen geleert. Das alte Token liefert danach 401.
 
 ## Häufige Fehler
@@ -130,6 +137,7 @@ Siehe `.env.example`. Der Server validiert sie beim Start mit Zod
 | `SERVER_PORT`           | `3000`                  | HTTP-Port des Servers                                       |
 | `CLIENT_ORIGIN`         | `http://localhost:4200` | Exakter HTTP(S)-Origin; in Produktion explizit erforderlich |
 | `SESSION_TTL_HOURS`     | `24`                    | Session-Lebensdauer, fester Ablauf ohne Sliding             |
+| `SIMULATION_SPEED`      | `60`                    | Simulationssekunden pro realer Sekunde                      |
 | `SESSION_COOKIE_SECURE` | `false`                 | Lokal HTTP; in Produktion zwingend `true`                   |
 
 ## Produktionsanforderungen

@@ -7,6 +7,8 @@ const AYLA: WorldEntity = {
   name: 'Ayla',
   x: 50,
   y: 70,
+  energy: 90,
+  interaction: null,
 };
 
 describe('WorldPresenceService', () => {

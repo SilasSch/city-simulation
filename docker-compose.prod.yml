@@ -44,6 +44,7 @@ services:
       CLIENT_ORIGIN: ${CLIENT_ORIGIN:?set CLIENT_ORIGIN to the public origin}
       SESSION_COOKIE_SECURE: 'true'
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-24}
+      SIMULATION_SPEED: ${SIMULATION_SPEED:-60}
     depends_on:
       postgres:
         condition: service_healthy

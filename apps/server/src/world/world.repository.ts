@@ -41,6 +41,7 @@ export class WorldRepository {
     zoneId: string,
     spawnX: number,
     spawnY: number,
+    energyUpdatedAt: Date,
     client: DatabaseClient,
   ): Promise<StoredWorldState> {
     return client.characterWorldState.upsert({
@@ -50,6 +51,7 @@ export class WorldRepository {
         zoneId,
         x: spawnX,
         y: spawnY,
+        energyUpdatedAt,
       },
       // Ein Wiedereintritt darf die persistierte Position nicht zurücksetzen.
       update: { zoneId },
@@ -100,7 +102,14 @@ export class WorldRepository {
   ): Promise<boolean> {
     const result = await client.characterWorldState.updateMany({
       where: { characterId, revision: expectedRevision },
-      data: { x, y, revision: { increment: 1 } },
+      data: {
+        x,
+        y,
+        revision: { increment: 1 },
+        interactionObjectId: null,
+        interactionStartedAt: null,
+        interactionEndsAt: null,
+      },
     });
     return result.count === 1;
   }

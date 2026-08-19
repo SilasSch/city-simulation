@@ -6,12 +6,14 @@ import {
   isWorldPositionWalkable,
   type WorldDirection,
   type WorldEntity,
+  type WorldInteractionObjectId,
   type WorldSnapshotPayload,
   type WorldZoneId,
 } from '@city/game-protocol';
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal';
 import { PrismaService } from '../persistence/prisma.service';
 import { ApplicationError } from '../shared/application-error';
+import { SimulationService } from '../simulation/simulation.service';
 import type { EnteredWorldContext } from './world.constants';
 import { WorldRepository } from './world.repository';
 
@@ -47,17 +49,23 @@ export class WorldService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly worlds: WorldRepository,
+    private readonly simulation: SimulationService,
   ) {}
 
   async enter(
     principal: AuthenticatedPrincipal,
     zoneId: WorldZoneId,
   ): Promise<WorldEntry> {
+    // zoneId ist bereits durch game-protocol validiert; der explizite Check
+    // schützt direkte Service-Aufrufer und hält die statische Zone sichtbar.
     if (zoneId !== WORLD_ZONE_ID) {
       throw new ApplicationError('VALIDATION_ERROR', 400, 'Unknown world zone');
     }
 
-    const entry = await this.prisma.$transaction(async (tx) => {
+    const simulatedNow = new Date(
+      this.simulation.clockSnapshot().simulatedTime,
+    );
+    const context = await this.prisma.$transaction(async (tx) => {
       const selected = await this.worlds.findSelectedCharacter(
         principal.playerProfileId,
         tx,
@@ -75,37 +83,60 @@ export class WorldService {
         zoneId,
         WORLD_SPAWN_POSITION.x,
         WORLD_SPAWN_POSITION.y,
+        simulatedNow,
         tx,
       );
-      let position = { x: state.x, y: state.y };
-      if (!isWorldPositionWalkable(position.x, position.y)) {
-        position = { ...WORLD_SPAWN_POSITION };
-        await this.worlds.relocate(selected.id, position.x, position.y, tx);
+      if (!isWorldPositionWalkable(state.x, state.y)) {
+        await this.worlds.relocate(
+          selected.id,
+          WORLD_SPAWN_POSITION.x,
+          WORLD_SPAWN_POSITION.y,
+          tx,
+        );
       }
-
-      return {
-        context: { characterId: selected.id, zoneId },
-        snapshot: {
-          zoneId,
-          selfCharacterId: selected.id,
-          entities: [
-            {
-              characterId: selected.id,
-              name: selected.name,
-              x: position.x,
-              y: position.y,
-            },
-          ],
-        },
-      } satisfies WorldEntry;
+      return { characterId: selected.id, zoneId } satisfies EnteredWorldContext;
     });
 
+    const entry: WorldEntry = {
+      context,
+      snapshot: {
+        zoneId,
+        selfCharacterId: context.characterId,
+        clock: this.simulation.clockSnapshot(),
+        entities: await this.simulation.entitiesInZone(zoneId),
+      },
+    };
     this.logger.log({
       event: 'world-entered',
       characterId: entry.context.characterId,
       zoneId,
     });
     return entry;
+  }
+
+  async interact(
+    principal: AuthenticatedPrincipal,
+    context: EnteredWorldContext,
+    objectId: WorldInteractionObjectId,
+  ): Promise<WorldEntity> {
+    const selected = await this.worlds.findSelectedCharacter(
+      principal.playerProfileId,
+      this.prisma,
+    );
+    const state = await this.worlds.findState(context.characterId, this.prisma);
+    if (
+      selected?.id !== context.characterId ||
+      !state ||
+      state.zoneId !== context.zoneId
+    ) {
+      throw new ApplicationError(
+        'WORLD_NOT_ENTERED',
+        409,
+        'Enter the world with the currently selected character first',
+      );
+    }
+
+    return this.simulation.startInteraction(context.characterId, objectId);
   }
 
   async move(
@@ -144,7 +175,6 @@ export class WorldService {
             'Movement is blocked by the Central Square map',
           );
         }
-
         const updated = await this.worlds.tryMove(
           context.characterId,
           state.revision,
@@ -156,20 +186,20 @@ export class WorldService {
 
         return {
           characterId: selected.id,
-          name: selected.name,
           ...position,
-        } satisfies WorldEntity;
+        };
       });
 
       if (moved) {
+        const entity = await this.simulation.entity(moved.characterId);
         this.logger.log({
           event: 'world-moved',
-          characterId: moved.characterId,
+          characterId: entity.characterId,
           direction,
-          x: moved.x,
-          y: moved.y,
+          x: entity.x,
+          y: entity.y,
         });
-        return moved;
+        return entity;
       }
     }
 

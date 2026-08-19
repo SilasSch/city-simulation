@@ -67,7 +67,9 @@ describe('WorldService (integration)', () => {
       name: 'Ayla',
       x: WORLD_SPAWN_POSITION.x,
       y: WORLD_SPAWN_POSITION.y,
+      interaction: null,
     });
+    expect(firstEntry.snapshot.entities[0]?.energy).toBeGreaterThan(99);
 
     const moved = await world.move(principal, firstEntry.context, 'E');
     const secondEntry = await world.enter(principal, WORLD_ZONE_ID);

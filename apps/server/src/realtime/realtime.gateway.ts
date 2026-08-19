@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, type OnApplicationShutdown } from '@nestjs/common';
 import {
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -11,9 +11,12 @@ import {
   CONNECT_COMMAND_TYPE,
   PROTOCOL_ERROR_EVENT_TYPE,
   PROTOCOL_VERSION,
+  SIMULATION_CLOCK_EVENT_TYPE,
   WORLD_ENTER_COMMAND_TYPE,
   WORLD_ENTITY_JOINED_EVENT_TYPE,
   WORLD_ENTITY_LEFT_EVENT_TYPE,
+  WORLD_ENTITY_UPDATED_EVENT_TYPE,
+  WORLD_INTERACT_COMMAND_TYPE,
   WORLD_MOVE_COMMAND_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
@@ -26,6 +29,7 @@ import { AuthService } from '../auth/auth.service';
 import { SessionCookieService } from '../auth/session-cookie.service';
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal';
 import { ApplicationError } from '../shared/application-error';
+import { SimulationService } from '../simulation/simulation.service';
 import { WORLD_ROOM, type EnteredWorldContext } from '../world/world.constants';
 import {
   WorldPresenceService,
@@ -34,18 +38,34 @@ import {
 import { WorldService } from '../world/world.service';
 import { RealtimeMessageService } from './realtime-message.service';
 
+/** Socket.IO-Event-Name für alle Protokollnachrichten (beide Richtungen). */
 export const PROTOCOL_CHANNEL = 'protocol';
 
+/** Socket-Daten nach erfolgreicher Handshake-Authentifizierung. */
 interface SocketData {
   principal: AuthenticatedPrincipal;
   world?: EnteredWorldContext;
 }
 
+/**
+ * Transport-Schicht für WebSockets. Validiert eingehende Nachrichten mit den
+ * Zod-Schemas aus game-protocol und delegiert fachliche Behandlung an die
+ * zuständigen Services.
+ *
+ * Authentifizierung (ADR 0007): Der Socket.IO-Handshake prüft das
+ * Session-Cookie. Ohne gültige Session wird die Verbindung abgelehnt —
+ * fachliche Commands setzen damit immer ein AuthenticatedPrincipal voraus.
+ */
 @WebSocketGateway()
 export class RealtimeGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+  implements
+    OnGatewayInit,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnApplicationShutdown
 {
   private readonly logger = new Logger(RealtimeGateway.name);
+  private simulationTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly messages: RealtimeMessageService,
@@ -53,6 +73,7 @@ export class RealtimeGateway
     private readonly sessionCookie: SessionCookieService,
     private readonly world: WorldService,
     private readonly presence: WorldPresenceService,
+    private readonly simulation: SimulationService,
   ) {}
 
   afterInit(server: Server): void {
@@ -87,6 +108,15 @@ export class RealtimeGateway
         next(new Error('authentication failed'));
       }
     });
+    this.simulationTimer = setInterval(() => {
+      void this.broadcastSimulationTick(server);
+    }, 1_000);
+    this.simulationTimer.unref();
+  }
+
+  onApplicationShutdown(): void {
+    if (this.simulationTimer) clearInterval(this.simulationTimer);
+    this.simulationTimer = null;
   }
 
   handleConnection(client: Socket): void {
@@ -97,8 +127,11 @@ export class RealtimeGateway
     });
   }
 
-  handleDisconnect(client: Socket): void {
+  async handleDisconnect(client: Socket): Promise<void> {
     const departure = this.presence.leave(client.id);
+    if (departure?.lastSocket) {
+      await this.simulation.abortInteraction(departure.characterId);
+    }
     this.announceDeparture(client, departure);
     this.logger.log({
       event: 'client-disconnected',
@@ -115,6 +148,8 @@ export class RealtimeGateway
     const parsed = parseIncomingMessage(raw);
 
     if (!parsed.ok) {
+      // Abgelehnte Nachricht: klares Error-Event, kein stiller Verwurf.
+      // Die Verbindung bleibt für weitere gültige Nachrichten offen (ADR 0006).
       this.logger.warn({
         event: 'message-rejected',
         code: parsed.code,
@@ -152,10 +187,15 @@ export class RealtimeGateway
           return;
         }
         case WORLD_ENTER_COMMAND_TYPE: {
+          // Erst ein erfolgreicher Eintritt darf den Socket-Kontext setzen.
+          // Ein fehlgeschlagener Re-Enter lässt keinen alten Kontext zurück.
           await client.leave(WORLD_ROOM);
-          this.announceDeparture(client, this.presence.leave(client.id));
+          const departure = this.presence.leave(client.id);
+          if (departure?.lastSocket) {
+            await this.simulation.abortInteraction(departure.characterId);
+          }
+          this.announceDeparture(client, departure);
           delete socketData.world;
-
           const entry = await this.world.enter(
             socketData.principal,
             parsed.payload.zoneId,
@@ -195,6 +235,28 @@ export class RealtimeGateway
           }
           return;
         }
+        case WORLD_INTERACT_COMMAND_TYPE: {
+          if (!socketData.world) {
+            throw new ApplicationError(
+              'WORLD_NOT_ENTERED',
+              409,
+              'Enter the world before interacting',
+            );
+          }
+          const entity = await this.world.interact(
+            socketData.principal,
+            socketData.world,
+            parsed.payload.objectId,
+          );
+          this.presence.update(entity);
+          client.nsp
+            .to(WORLD_ROOM)
+            .emit(
+              PROTOCOL_CHANNEL,
+              createMessage(WORLD_ENTITY_UPDATED_EVENT_TYPE, { entity }),
+            );
+          return;
+        }
         case WORLD_MOVE_COMMAND_TYPE: {
           if (!socketData.world) {
             throw new ApplicationError(
@@ -226,7 +288,11 @@ export class RealtimeGateway
       if (error instanceof ApplicationError) {
         if (error.code === 'WORLD_NOT_ENTERED') {
           await client.leave(WORLD_ROOM);
-          this.announceDeparture(client, this.presence.leave(client.id));
+          const departure = this.presence.leave(client.id);
+          if (departure?.lastSocket) {
+            await this.simulation.abortInteraction(departure.characterId);
+          }
+          this.announceDeparture(client, departure);
           delete socketData.world;
         }
         this.emitError(
@@ -280,6 +346,37 @@ export class RealtimeGateway
 
     client.disconnect(true);
     return false;
+  }
+
+  private async broadcastSimulationTick(server: Server): Promise<void> {
+    const characterIds = this.presence
+      .entities()
+      .map((entity) => entity.characterId);
+    if (characterIds.length === 0) return;
+
+    try {
+      const tick = await this.simulation.tick(characterIds);
+      server
+        .to(WORLD_ROOM)
+        .emit(
+          PROTOCOL_CHANNEL,
+          createMessage(SIMULATION_CLOCK_EVENT_TYPE, tick.clock),
+        );
+      for (const entity of tick.entities) {
+        this.presence.update(entity);
+        server
+          .to(WORLD_ROOM)
+          .emit(
+            PROTOCOL_CHANNEL,
+            createMessage(WORLD_ENTITY_UPDATED_EVENT_TYPE, { entity }),
+          );
+      }
+    } catch (error) {
+      this.logger.error(
+        'Simulation tick failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 
   private announceDeparture(

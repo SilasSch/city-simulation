@@ -5,7 +5,7 @@ import type { HealthResponseDto } from '@city/shared-types';
  * Aktuelle Protokollversion. Zentral definiert — Client und Server
  * MÜSSEN dieselbe Version verwenden. Bei Erhöhung ist ADR 0006 zu beachten.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /**
  * Stabile maschinenlesbare Fehlercodes für ProtocolErrorEvent.
@@ -31,6 +31,9 @@ export const PROTOCOL_ERROR_CODES = [
   'NO_CHARACTER_SELECTED',
   'WORLD_NOT_ENTERED',
   'WORLD_MOVE_BLOCKED',
+  'INTERACTION_OBJECT_NOT_FOUND',
+  'INTERACTION_OUT_OF_RANGE',
+  'INTERACTION_ALREADY_ACTIVE',
 ] as const;
 
 export const protocolErrorCodeSchema = z.enum(PROTOCOL_ERROR_CODES);
@@ -133,6 +136,20 @@ export const CENTRAL_SQUARE_COLLIDERS: readonly WorldCollider[] = [
   },
 ] as const;
 
+export const WORLD_INTERACTION_OBJECTS = [
+  {
+    id: 'bench-south',
+    kind: 'bench',
+    x: 62,
+    y: 70,
+    interactionRange: 10,
+    durationSimulationSeconds: 300,
+    energyGain: 30,
+  },
+] as const;
+export type WorldInteractionObject = (typeof WORLD_INTERACTION_OBJECTS)[number];
+export type WorldInteractionObjectId = WorldInteractionObject['id'];
+
 export function isWorldPositionWalkable(x: number, y: number): boolean {
   if (
     !Number.isInteger(x) ||
@@ -167,11 +184,21 @@ export type WorldZoneId = z.infer<typeof worldZoneIdSchema>;
 export const worldDirectionSchema = z.enum(['N', 'E', 'S', 'W']);
 export type WorldDirection = z.infer<typeof worldDirectionSchema>;
 
+export const worldInteractionStateSchema = z.object({
+  objectId: z.literal('bench-south'),
+  startedAt: z.string().datetime({ offset: true }),
+  endsAt: z.string().datetime({ offset: true }),
+  progress: z.number().min(0).max(1),
+});
+export type WorldInteractionState = z.infer<typeof worldInteractionStateSchema>;
+
 export const worldEntitySchema = z.object({
   characterId: z.string().uuid(),
   name: z.string().min(1).max(32),
   x: z.number().int().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
   y: z.number().int().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
+  energy: z.number().min(0).max(100),
+  interaction: worldInteractionStateSchema.nullable(),
 });
 export type WorldEntity = z.infer<typeof worldEntitySchema>;
 
@@ -187,6 +214,12 @@ export const worldMovePayloadSchema = z.object({
 });
 export type WorldMovePayload = z.infer<typeof worldMovePayloadSchema>;
 
+export const WORLD_INTERACT_COMMAND_TYPE = 'world-interact';
+export const worldInteractPayloadSchema = z.object({
+  objectId: z.literal('bench-south'),
+});
+export type WorldInteractPayload = z.infer<typeof worldInteractPayloadSchema>;
+
 // --- Events (Server -> Client): Zustandsänderung ist bereits erfolgt ---
 
 export const CONNECTION_ESTABLISHED_EVENT_TYPE = 'connection-established';
@@ -200,10 +233,19 @@ export type ConnectionEstablishedPayload = z.infer<
   typeof connectionEstablishedPayloadSchema
 >;
 
+export const simulationClockPayloadSchema = z.object({
+  simulatedTime: z.string().datetime({ offset: true }),
+  speed: z.number().positive(),
+});
+export type SimulationClockPayload = z.infer<
+  typeof simulationClockPayloadSchema
+>;
+
 export const WORLD_SNAPSHOT_EVENT_TYPE = 'world-snapshot';
 export const worldSnapshotPayloadSchema = z.object({
   zoneId: worldZoneIdSchema,
   selfCharacterId: z.string().uuid(),
+  clock: simulationClockPayloadSchema,
   entities: z.array(worldEntitySchema),
 });
 export type WorldSnapshotPayload = z.infer<typeof worldSnapshotPayloadSchema>;
@@ -231,6 +273,17 @@ export const worldEntityLeftPayloadSchema = z.object({
 export type WorldEntityLeftPayload = z.infer<
   typeof worldEntityLeftPayloadSchema
 >;
+
+export const WORLD_ENTITY_UPDATED_EVENT_TYPE = 'world-entity-updated';
+export const worldEntityUpdatedPayloadSchema = z.object({
+  entity: worldEntitySchema,
+});
+export type WorldEntityUpdatedPayload = z.infer<
+  typeof worldEntityUpdatedPayloadSchema
+>;
+
+export const SIMULATION_CLOCK_EVENT_TYPE = 'simulation-clock';
+export type SimulationClockEventPayload = SimulationClockPayload;
 
 // --- Error Events (Server -> Client): Nachricht wurde abgelehnt ---
 
