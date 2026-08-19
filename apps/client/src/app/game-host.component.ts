@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import Phaser from 'phaser';
 import { GameEngineService } from './game-engine.service';
+import { RealtimeService } from './realtime.service';
 import { WorldStateService } from './world-state.service';
 
 /**
@@ -28,6 +29,12 @@ import { WorldStateService } from './world-state.service';
       <p data-testid="world-zone">
         Zone: {{ world.zoneId() ?? 'noch nicht betreten' }}
       </p>
+      @if (realtime.connectionState() === 'connected' && !world.zoneId()) {
+        <p data-testid="world-loading">Spielwelt wird geladen…</p>
+      }
+      <p data-testid="world-player-count">
+        Sichtbare Characters: {{ world.entities().length }}
+      </p>
       <p>Steuerung: WASD oder Pfeiltasten</p>
       <div #gameContainer class="game-container"></div>
     </section>
@@ -40,6 +47,7 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
   protected readonly engineBooted = signal(false);
 
   private readonly engine = inject(GameEngineService);
+  protected readonly realtime = inject(RealtimeService);
   protected readonly world = inject(WorldStateService);
   private readonly zone = inject(NgZone);
   private game: Phaser.Game | null = null;

@@ -1,6 +1,8 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
+  WORLD_ENTITY_JOINED_EVENT_TYPE,
+  WORLD_ENTITY_LEFT_EVENT_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
   WORLD_ZONE_ID,
@@ -89,23 +91,35 @@ export class WorldStateService {
         this.selfCharacterId.set(message.payload.selfCharacterId);
         this.entities.set([...message.payload.entities]);
         return;
+      case WORLD_ENTITY_JOINED_EVENT_TYPE:
       case WORLD_POSITION_CHANGED_EVENT_TYPE:
         if (!this.zoneId()) return;
-        this.entities.update((entities) => {
-          const existing = entities.findIndex(
-            (entity) =>
-              entity.characterId === message.payload.entity.characterId,
-          );
-          if (existing < 0) return [...entities, message.payload.entity];
-
-          const updated = [...entities];
-          updated[existing] = message.payload.entity;
-          return updated;
-        });
+        this.upsertEntity(message.payload.entity);
+        return;
+      case WORLD_ENTITY_LEFT_EVENT_TYPE:
+        if (!this.zoneId()) return;
+        this.entities.update((entities) =>
+          entities.filter(
+            (entity) => entity.characterId !== message.payload.characterId,
+          ),
+        );
         return;
       default:
         return;
     }
+  }
+
+  private upsertEntity(entity: WorldEntity): void {
+    this.entities.update((entities) => {
+      const existing = entities.findIndex(
+        (candidate) => candidate.characterId === entity.characterId,
+      );
+      if (existing < 0) return [...entities, entity];
+
+      const updated = [...entities];
+      updated[existing] = entity;
+      return updated;
+    });
   }
 
   private clearWorld(): void {

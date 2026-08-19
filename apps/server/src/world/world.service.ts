@@ -1,10 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
-  WORLD_COORDINATE_MAX,
-  WORLD_COORDINATE_MIN,
   WORLD_MOVE_STEP,
-  WORLD_SPAWN_COORDINATE,
+  WORLD_SPAWN_POSITION,
   WORLD_ZONE_ID,
+  isWorldPositionWalkable,
   type WorldDirection,
   type WorldEntity,
   type WorldSnapshotPayload,
@@ -23,10 +22,6 @@ export interface WorldEntry {
 
 const MAX_MOVE_RETRIES = 8;
 
-function clampCoordinate(value: number): number {
-  return Math.min(WORLD_COORDINATE_MAX, Math.max(WORLD_COORDINATE_MIN, value));
-}
-
 function nextPosition(
   x: number,
   y: number,
@@ -34,13 +29,13 @@ function nextPosition(
 ): { x: number; y: number } {
   switch (direction) {
     case 'N':
-      return { x, y: clampCoordinate(y - WORLD_MOVE_STEP) };
+      return { x, y: y - WORLD_MOVE_STEP };
     case 'E':
-      return { x: clampCoordinate(x + WORLD_MOVE_STEP), y };
+      return { x: x + WORLD_MOVE_STEP, y };
     case 'S':
-      return { x, y: clampCoordinate(y + WORLD_MOVE_STEP) };
+      return { x, y: y + WORLD_MOVE_STEP };
     case 'W':
-      return { x: clampCoordinate(x - WORLD_MOVE_STEP), y };
+      return { x: x - WORLD_MOVE_STEP, y };
   }
 }
 
@@ -58,8 +53,6 @@ export class WorldService {
     principal: AuthenticatedPrincipal,
     zoneId: WorldZoneId,
   ): Promise<WorldEntry> {
-    // zoneId ist bereits durch game-protocol validiert; der explizite Check
-    // schützt direkte Service-Aufrufer und hält die statische Zone sichtbar.
     if (zoneId !== WORLD_ZONE_ID) {
       throw new ApplicationError('VALIDATION_ERROR', 400, 'Unknown world zone');
     }
@@ -77,14 +70,32 @@ export class WorldService {
         );
       }
 
-      await this.worlds.enter(selected.id, zoneId, WORLD_SPAWN_COORDINATE, tx);
-      const entities = await this.worlds.findEntitiesInZone(zoneId, tx);
+      const state = await this.worlds.enter(
+        selected.id,
+        zoneId,
+        WORLD_SPAWN_POSITION.x,
+        WORLD_SPAWN_POSITION.y,
+        tx,
+      );
+      let position = { x: state.x, y: state.y };
+      if (!isWorldPositionWalkable(position.x, position.y)) {
+        position = { ...WORLD_SPAWN_POSITION };
+        await this.worlds.relocate(selected.id, position.x, position.y, tx);
+      }
+
       return {
         context: { characterId: selected.id, zoneId },
         snapshot: {
           zoneId,
           selfCharacterId: selected.id,
-          entities,
+          entities: [
+            {
+              characterId: selected.id,
+              name: selected.name,
+              x: position.x,
+              y: position.y,
+            },
+          ],
         },
       } satisfies WorldEntry;
     });
@@ -126,6 +137,14 @@ export class WorldService {
         }
 
         const position = nextPosition(state.x, state.y, direction);
+        if (!isWorldPositionWalkable(position.x, position.y)) {
+          throw new ApplicationError(
+            'WORLD_MOVE_BLOCKED',
+            409,
+            'Movement is blocked by the Central Square map',
+          );
+        }
+
         const updated = await this.worlds.tryMove(
           context.characterId,
           state.revision,

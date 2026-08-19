@@ -1,11 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import {
-  WORLD_COORDINATE_MIN,
-  WORLD_SPAWN_COORDINATE,
-  WORLD_ZONE_ID,
-} from '@city/game-protocol';
+import { WORLD_SPAWN_POSITION, WORLD_ZONE_ID } from '@city/game-protocol';
 import { AppModule } from '../app.module';
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal';
 import { AuthService } from '../auth/auth.service';
@@ -65,14 +61,13 @@ describe('WorldService (integration)', () => {
     const principal = await playerWithCharacter('enter@example.com');
 
     const firstEntry = await world.enter(principal, WORLD_ZONE_ID);
-    expect(firstEntry.snapshot.entities).toEqual([
-      {
-        characterId: firstEntry.snapshot.selfCharacterId,
-        name: 'Ayla',
-        x: WORLD_SPAWN_COORDINATE,
-        y: WORLD_SPAWN_COORDINATE,
-      },
-    ]);
+    expect(firstEntry.snapshot.entities).toHaveLength(1);
+    expect(firstEntry.snapshot.entities[0]).toMatchObject({
+      characterId: firstEntry.snapshot.selfCharacterId,
+      name: 'Ayla',
+      x: WORLD_SPAWN_POSITION.x,
+      y: WORLD_SPAWN_POSITION.y,
+    });
 
     const moved = await world.move(principal, firstEntry.context, 'E');
     const secondEntry = await world.enter(principal, WORLD_ZONE_ID);
@@ -80,7 +75,7 @@ describe('WorldService (integration)', () => {
       secondEntry.snapshot.entities.find(
         (entity) => entity.characterId === moved.characterId,
       ),
-    ).toEqual(moved);
+    ).toMatchObject({ x: moved.x, y: moved.y });
 
     const stored = await prisma.characterWorldState.findUniqueOrThrow({
       where: { characterId: moved.characterId },
@@ -88,7 +83,7 @@ describe('WorldService (integration)', () => {
     expect(stored.revision).toBe(1);
   });
 
-  it('clamps movement at the bounds and serializes concurrent moves', async () => {
+  it('serializes concurrent valid moves', async () => {
     const principal = await playerWithCharacter('movement@example.com');
     const entry = await world.enter(principal, WORLD_ZONE_ID);
 
@@ -96,17 +91,59 @@ describe('WorldService (integration)', () => {
       world.move(principal, entry.context, 'E'),
       world.move(principal, entry.context, 'E'),
     ]);
-    for (let step = 0; step < 30; step += 1) {
-      await world.move(principal, entry.context, 'N');
-      await world.move(principal, entry.context, 'W');
-    }
 
     const stored = await prisma.characterWorldState.findUniqueOrThrow({
       where: { characterId: entry.context.characterId },
     });
-    expect(stored.x).toBe(WORLD_COORDINATE_MIN);
-    expect(stored.y).toBe(WORLD_COORDINATE_MIN);
-    expect(stored.revision).toBe(62);
+    expect(stored.x).toBe(60);
+    expect(stored.y).toBe(WORLD_SPAWN_POSITION.y);
+    expect(stored.revision).toBe(2);
+  });
+
+  it('rejects world bounds and obstacles without changing persisted state', async () => {
+    const principal = await playerWithCharacter('collision@example.com');
+    const entry = await world.enter(principal, WORLD_ZONE_ID);
+
+    await prisma.characterWorldState.update({
+      where: { characterId: entry.context.characterId },
+      data: { x: 0, y: 50, revision: 10 },
+    });
+    await expect(
+      world.move(principal, entry.context, 'W'),
+    ).rejects.toMatchObject({ code: 'WORLD_MOVE_BLOCKED' });
+
+    await prisma.characterWorldState.update({
+      where: { characterId: entry.context.characterId },
+      data: { x: 30, y: 10, revision: 11 },
+    });
+    await expect(
+      world.move(principal, entry.context, 'W'),
+    ).rejects.toMatchObject({ code: 'WORLD_MOVE_BLOCKED' });
+
+    const stored = await prisma.characterWorldState.findUniqueOrThrow({
+      where: { characterId: entry.context.characterId },
+    });
+    expect(stored).toMatchObject({ x: 30, y: 10, revision: 11 });
+  });
+
+  it('relocates a persisted position that became invalid after a map change', async () => {
+    const principal = await playerWithCharacter('relocate@example.com');
+    const entry = await world.enter(principal, WORLD_ZONE_ID);
+    await prisma.characterWorldState.update({
+      where: { characterId: entry.context.characterId },
+      data: { x: 50, y: 50 },
+    });
+
+    const reentered = await world.enter(principal, WORLD_ZONE_ID);
+
+    expect(
+      reentered.snapshot.entities.find(
+        (entity) => entity.characterId === entry.context.characterId,
+      ),
+    ).toMatchObject({
+      name: 'Ayla',
+      ...WORLD_SPAWN_POSITION,
+    });
   });
 
   it('invalidates an entered context after the selected character changes', async () => {

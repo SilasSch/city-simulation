@@ -4,6 +4,8 @@ import {
   PROTOCOL_ERROR_EVENT_TYPE,
   PROTOCOL_VERSION,
   WORLD_ENTER_COMMAND_TYPE,
+  WORLD_ENTITY_JOINED_EVENT_TYPE,
+  WORLD_ENTITY_LEFT_EVENT_TYPE,
   WORLD_MOVE_COMMAND_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
@@ -12,6 +14,8 @@ import {
   protocolEnvelopeSchema,
   protocolErrorPayloadSchema,
   worldEnterPayloadSchema,
+  worldEntityJoinedPayloadSchema,
+  worldEntityLeftPayloadSchema,
   worldMovePayloadSchema,
   worldPositionChangedPayloadSchema,
   worldSnapshotPayloadSchema,
@@ -23,6 +27,8 @@ import type {
   ProtocolErrorCode,
   ProtocolErrorPayload,
   WorldEnterPayload,
+  WorldEntityJoinedPayload,
+  WorldEntityLeftPayload,
   WorldMovePayload,
   WorldPositionChangedPayload,
   WorldSnapshotPayload,
@@ -67,6 +73,16 @@ export type ParsedServerMessage =
       kind: typeof WORLD_POSITION_CHANGED_EVENT_TYPE;
       envelope: ProtocolEnvelope;
       payload: WorldPositionChangedPayload;
+    }
+  | {
+      kind: typeof WORLD_ENTITY_JOINED_EVENT_TYPE;
+      envelope: ProtocolEnvelope;
+      payload: WorldEntityJoinedPayload;
+    }
+  | {
+      kind: typeof WORLD_ENTITY_LEFT_EVENT_TYPE;
+      envelope: ProtocolEnvelope;
+      payload: WorldEntityLeftPayload;
     };
 
 export interface ParseFailure {
@@ -238,6 +254,34 @@ export function parseServerMessage(raw: unknown): ParseServerResult {
       return {
         ok: true,
         kind: WORLD_POSITION_CHANGED_EVENT_TYPE,
+        envelope,
+        payload: payloadResult.data,
+      };
+    }
+    case WORLD_ENTITY_JOINED_EVENT_TYPE: {
+      const payloadResult = worldEntityJoinedPayloadSchema.safeParse(
+        envelope.payload,
+      );
+      if (!payloadResult.success) {
+        return invalidPayload(envelope, 'world-entity-joined event');
+      }
+      return {
+        ok: true,
+        kind: WORLD_ENTITY_JOINED_EVENT_TYPE,
+        envelope,
+        payload: payloadResult.data,
+      };
+    }
+    case WORLD_ENTITY_LEFT_EVENT_TYPE: {
+      const payloadResult = worldEntityLeftPayloadSchema.safeParse(
+        envelope.payload,
+      );
+      if (!payloadResult.success) {
+        return invalidPayload(envelope, 'world-entity-left event');
+      }
+      return {
+        ok: true,
+        kind: WORLD_ENTITY_LEFT_EVENT_TYPE,
         envelope,
         payload: payloadResult.data,
       };

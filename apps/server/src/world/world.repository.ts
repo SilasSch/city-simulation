@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import type { WorldEntity } from '@city/game-protocol';
 import { PrismaService } from '../persistence/prisma.service';
 
 type DatabaseClient = Prisma.TransactionClient | PrismaService;
@@ -40,7 +39,8 @@ export class WorldRepository {
   enter(
     characterId: string,
     zoneId: string,
-    spawnCoordinate: number,
+    spawnX: number,
+    spawnY: number,
     client: DatabaseClient,
   ): Promise<StoredWorldState> {
     return client.characterWorldState.upsert({
@@ -48,8 +48,8 @@ export class WorldRepository {
       create: {
         characterId,
         zoneId,
-        x: spawnCoordinate,
-        y: spawnCoordinate,
+        x: spawnX,
+        y: spawnY,
       },
       // Ein Wiedereintritt darf die persistierte Position nicht zurücksetzen.
       update: { zoneId },
@@ -63,26 +63,16 @@ export class WorldRepository {
     });
   }
 
-  async findEntitiesInZone(
-    zoneId: string,
+  async relocate(
+    characterId: string,
+    x: number,
+    y: number,
     client: DatabaseClient,
-  ): Promise<WorldEntity[]> {
-    const states = await client.characterWorldState.findMany({
-      where: { zoneId },
-      orderBy: { characterId: 'asc' },
-      select: {
-        characterId: true,
-        x: true,
-        y: true,
-        character: { select: { name: true } },
-      },
+  ): Promise<void> {
+    await client.characterWorldState.update({
+      where: { characterId },
+      data: { x, y, revision: { increment: 1 } },
     });
-    return states.map((state) => ({
-      characterId: state.characterId,
-      name: state.character.name,
-      x: state.x,
-      y: state.y,
-    }));
   }
 
   findState(

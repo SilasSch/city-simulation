@@ -1,4 +1,10 @@
 import Phaser from 'phaser';
+import {
+  CENTRAL_SQUARE_COLLIDERS,
+  WORLD_COORDINATE_MAX,
+  type WorldCircleCollider,
+  type WorldRectangleCollider,
+} from '@city/game-protocol';
 
 export const CENTRAL_SQUARE_VIEWPORT = {
   width: 800,
@@ -21,12 +27,34 @@ interface Building {
   readonly roof: number;
 }
 
-const BUILDINGS: readonly Building[] = [
-  { x: 62, y: 48, width: 174, height: 74, roof: 0x9b5545 },
-  { x: 564, y: 48, width: 174, height: 74, roof: 0x725066 },
-  { x: 62, y: 328, width: 174, height: 74, roof: 0x6d5945 },
-  { x: 564, y: 328, width: 174, height: 74, roof: 0x526656 },
-];
+const MAP_CONTENT = { x: 62, y: 48, width: 676, height: 354 } as const;
+const BUILDING_ROOFS = [0x9b5545, 0x725066, 0x6d5945, 0x526656] as const;
+const BUILDING_COLLIDERS = CENTRAL_SQUARE_COLLIDERS.filter(
+  (collider): collider is WorldRectangleCollider =>
+    collider.kind === 'rectangle',
+);
+const FOUNTAIN_COLLIDER = CENTRAL_SQUARE_COLLIDERS.find(
+  (collider): collider is WorldCircleCollider =>
+    collider.id === 'central-fountain' && collider.kind === 'circle',
+);
+
+function mapX(value: number): number {
+  return MAP_CONTENT.x + (value / WORLD_COORDINATE_MAX) * MAP_CONTENT.width;
+}
+
+function mapY(value: number): number {
+  return MAP_CONTENT.y + (value / WORLD_COORDINATE_MAX) * MAP_CONTENT.height;
+}
+
+const BUILDINGS: readonly Building[] = BUILDING_COLLIDERS.map(
+  (collider, index) => ({
+    x: mapX(collider.minX),
+    y: mapY(collider.minY),
+    width: mapX(collider.maxX) - mapX(collider.minX),
+    height: mapY(collider.maxY) - mapY(collider.minY),
+    roof: BUILDING_ROOFS[index] ?? 0x725066,
+  }),
+);
 
 const TREES: readonly [number, number][] = [
   [274, 95],
@@ -65,14 +93,20 @@ export function renderCentralSquare(scene: Phaser.Scene): void {
   for (const [x, y] of TREES) drawTree(map, x, y);
 
   // Central fountain and four benches give the square a recognizable focus.
+  // The fountain position and footprint come from the shared collision model.
+  const fountainX = mapX(FOUNTAIN_COLLIDER?.x ?? 50);
+  const fountainY = mapY(FOUNTAIN_COLLIDER?.y ?? 50);
+  const fountainRadius =
+    ((FOUNTAIN_COLLIDER?.radius ?? 7) / WORLD_COORDINATE_MAX) *
+    MAP_CONTENT.width;
   map.fillStyle(0x746b62);
-  map.fillCircle(400, 225, 45);
+  map.fillCircle(fountainX, fountainY, fountainRadius);
   map.fillStyle(0x75b8c7);
-  map.fillCircle(400, 225, 36);
+  map.fillCircle(fountainX, fountainY, fountainRadius * 0.8);
   map.fillStyle(0xb8e3e7);
-  map.fillCircle(400, 225, 12);
+  map.fillCircle(fountainX, fountainY, fountainRadius * 0.27);
   map.lineStyle(3, 0xd9f2ef, 0.8);
-  map.strokeCircle(400, 225, 25);
+  map.strokeCircle(fountainX, fountainY, fountainRadius * 0.56);
 
   map.fillStyle(0x604b38);
   map.fillRoundedRect(290, 151, 58, 9, 3);
