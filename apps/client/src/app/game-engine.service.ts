@@ -5,13 +5,13 @@ import {
   WORLD_COORDINATE_MIN,
 } from '@city/game-protocol';
 import type { WorldDirection, WorldEntity } from '@city/game-protocol';
+import {
+  CENTRAL_SQUARE_BOUNDS,
+  CENTRAL_SQUARE_ENTITY_INSET,
+  CENTRAL_SQUARE_VIEWPORT,
+  renderCentralSquare,
+} from './central-square-map';
 import { worldDirectionForKey } from './world-input';
-
-const ZONE_LEFT = 80;
-const ZONE_TOP = 45;
-const ZONE_WIDTH = 640;
-const ZONE_HEIGHT = 360;
-const MARKER_INSET = 14;
 
 export interface WorldScenePort {
   readonly entities: () => readonly WorldEntity[];
@@ -40,17 +40,7 @@ class WorldScene extends Phaser.Scene {
   }
 
   create(): void {
-    const zone = this.add.graphics();
-    zone.fillStyle(0x172033, 1);
-    zone.fillRect(ZONE_LEFT, ZONE_TOP, ZONE_WIDTH, ZONE_HEIGHT);
-    zone.lineStyle(2, 0x4b6388, 1);
-    zone.strokeRect(ZONE_LEFT, ZONE_TOP, ZONE_WIDTH, ZONE_HEIGHT);
-
-    this.add.text(ZONE_LEFT, 15, 'Central Square', {
-      color: '#cbd5e1',
-      fontFamily: 'system-ui, sans-serif',
-      fontSize: '18px',
-    });
+    renderCentralSquare(this);
 
     this.input.keyboard?.on('keydown', this.handleKeydown);
     this.onBoot();
@@ -96,12 +86,16 @@ class WorldScene extends Phaser.Scene {
 
   private createMarker(entity: WorldEntity): EntityMarker {
     const marker = {
-      dot: this.add.graphics(),
-      label: this.add.text(0, 0, entity.name, {
-        color: '#e5e7eb',
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '12px',
-      }),
+      dot: this.add.graphics().setDepth(10),
+      label: this.add
+        .text(0, 0, entity.name, {
+          color: '#e5e7eb',
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: '12px',
+          stroke: '#172019',
+          strokeThickness: 3,
+        })
+        .setDepth(11),
     };
     this.markers.set(entity.characterId, marker);
     return marker;
@@ -109,17 +103,19 @@ class WorldScene extends Phaser.Scene {
 
   private toScreenPosition(entity: WorldEntity): { x: number; y: number } {
     const coordinateRange = WORLD_COORDINATE_MAX - WORLD_COORDINATE_MIN;
-    const usableWidth = ZONE_WIDTH - MARKER_INSET * 2;
-    const usableHeight = ZONE_HEIGHT - MARKER_INSET * 2;
+    const usableWidth =
+      CENTRAL_SQUARE_BOUNDS.width - CENTRAL_SQUARE_ENTITY_INSET * 2;
+    const usableHeight =
+      CENTRAL_SQUARE_BOUNDS.height - CENTRAL_SQUARE_ENTITY_INSET * 2;
 
     return {
       x:
-        ZONE_LEFT +
-        MARKER_INSET +
+        CENTRAL_SQUARE_BOUNDS.x +
+        CENTRAL_SQUARE_ENTITY_INSET +
         ((entity.x - WORLD_COORDINATE_MIN) / coordinateRange) * usableWidth,
       y:
-        ZONE_TOP +
-        MARKER_INSET +
+        CENTRAL_SQUARE_BOUNDS.y +
+        CENTRAL_SQUARE_ENTITY_INSET +
         ((entity.y - WORLD_COORDINATE_MIN) / coordinateRange) * usableHeight,
     };
   }
@@ -140,9 +136,13 @@ export class GameEngineService {
     return new Phaser.Game({
       type,
       parent,
-      width: 800,
-      height: 450,
-      backgroundColor: '#111827',
+      width: CENTRAL_SQUARE_VIEWPORT.width,
+      height: CENTRAL_SQUARE_VIEWPORT.height,
+      backgroundColor: '#16251c',
+      scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+      },
       scene: new WorldScene(onBoot, world),
       banner: false,
     });
