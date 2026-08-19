@@ -11,6 +11,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  production-configuration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check required production variables
+        run: |
+          if output=$(env -u POSTGRES_PASSWORD -u DOMAIN -u CLIENT_ORIGIN \
+            docker compose -f docker-compose.prod.yml config --quiet 2>&1); then
+            echo 'Production Compose validation unexpectedly accepted missing required variables.' >&2
+            exit 1
+          fi
+
+          if ! grep -Fq 'set POSTGRES_PASSWORD' <<<"$output"; then
+            echo 'Production Compose validation failed without the expected POSTGRES_PASSWORD guidance.' >&2
+            echo "$output" >&2
+            exit 1
+          fi
+
+      - name: Validate production Compose configuration
+        run: docker compose --env-file .env.production.example -f docker-compose.prod.yml config --quiet
+
+      # Build the same targets used by staging, but do not start the stack or
+      # duplicate the post-merge browser smoke test in this pull-request job.
+      - name: Build production images
+        run: docker compose --env-file .env.production.example -f docker-compose.prod.yml build migrate server client
+
   verify:
     runs-on: ubuntu-latest
 
