@@ -37,12 +37,16 @@ Erwartung:
    (ADR 0009). Weitere Characters können angelegt und ausgewählt werden.
 3. **Welt betreten:** Sobald Session, WebSocket und Auswahl bereit sind, sendet
    der Client `world-enter` für `central-square` und rendert den Snapshot.
-4. **Bewegen:** WASD oder Pfeiltasten senden Richtungs-Commands. Der Marker
-   bewegt sich erst nach dem persistierten Serverevent.
-5. **Reload / Reconnect:** Session, Character-Auswahl und Weltposition werden
+4. **Bewegen:** WASD oder Pfeiltasten senden Richtungs-Commands. Collider
+   blockieren Gebäude, Brunnen und Zonengrenzen serverseitig.
+5. **Multiplayer:** Weitere verbundene Characters erscheinen und verschwinden
+   über Join-/Leave-Events; mehrere Tabs desselben Characters zählen einmal.
+6. **Rasten:** Zur südlichen Bank bewegen und „Rasten“ wählen. Der Server
+   bestätigt Start, Fortschritt und Energiegewinn über die Simulationsuhr.
+7. **Reload / Reconnect:** Auswahl, Position, Energie und Simulationszeit werden
    wiederhergestellt; eine neue Socket-Verbindung fordert erneut den Snapshot.
-6. **Abmelden:** Session und Cookie werden invalidiert, WebSocket und lokale
-   Projektionen geleert. Das alte Token liefert danach 401.
+8. **Löschen / Abmelden:** Characters lassen sich sicher löschen; eine aktive
+   Auswahl wird atomar geleert. Logout invalidiert Cookie und alle Session-Sockets.
 
 ## Häufige Fehler
 
@@ -54,7 +58,7 @@ Erwartung:
 | pnpm meldet ignorierte Build-Skripte              | Nur `allowBuilds` in `pnpm-workspace.yaml` pflegen; keine zweite `onlyBuiltDependencies`-Liste anlegen |
 | `ORIGIN_NOT_ALLOWED` bei POST                     | Exakt über `http://localhost:4200` arbeiten; `CLIENT_ORIGIN` muss Scheme, Host und Port entsprechen    |
 | WebSocket-Verbindung wird abgelehnt               | Gültige Session **und** exakter Origin sind bereits beim Handshake Pflicht                             |
-| `RATE_LIMITED` bei Register/Login                 | Das getrennte IP-Limitfenster von 60 Sekunden abwarten                                                 |
+| `RATE_LIMITED` bei Register/Login                 | Das 60-Sekunden-Fenster abwarten; Buckets gelten gemeinsam über Server-Replikate                       |
 | `SESSION_EXPIRED`                                 | Erneut anmelden; abgelaufene Sessionzeilen werden automatisch bereinigt                                |
 | Produktionsstart verweigert Cookie-/Origin-Konfig | Expliziten HTTPS-`CLIENT_ORIGIN` und `SESSION_COOKIE_SECURE=true` setzen                               |
 | E2E-Start verweigert den Datenbanknamen           | `E2E_DATABASE_URL` muss auf `city_simulation_e2e` zeigen                                               |
@@ -74,6 +78,12 @@ pnpm db:reset            # nur Development: DB leeren und neu migrieren
 
 Einzelnes Projekt: `pnpm exec nx run server:test`, `pnpm exec nx run client:build` usw.
 Projektgraph: `pnpm exec nx graph`
+
+Dependency-Updates werden über `renovate.json` gesteuert: nicht-breaking
+npm- und GitHub-Actions-Updates werden gruppiert, Major-Updates bleiben
+separat und der Lockfile-Wartungslauf ist wöchentlich. Damit Pull Requests
+entstehen, muss die Renovate GitHub App einmalig für das Repository aktiviert
+werden; die Konfiguration selbst enthält keine Zugangsdaten.
 
 ### Tests und Datenbanken
 
@@ -123,28 +133,34 @@ ein erreichbares PostgreSQL.
 Siehe `.env.example`. Der Server validiert sie beim Start mit Zod
 (`apps/server/src/core/config.ts`) und verweigert bei Fehlern den Start.
 
-| Variable                | Standard                | Zweck                                                       |
-| ----------------------- | ----------------------- | ----------------------------------------------------------- |
-| `NODE_ENV`              | `development`           | `production` aktiviert zusätzliche Startregeln und HSTS     |
-| `DATABASE_URL`          | – (Pflicht)             | PostgreSQL-Verbindung                                       |
-| `SERVER_PORT`           | `3000`                  | HTTP-Port des Servers                                       |
-| `CLIENT_ORIGIN`         | `http://localhost:4200` | Exakter HTTP(S)-Origin; in Produktion explizit erforderlich |
-| `SESSION_TTL_HOURS`     | `24`                    | Session-Lebensdauer, fester Ablauf ohne Sliding             |
-| `SESSION_COOKIE_SECURE` | `false`                 | Lokal HTTP; in Produktion zwingend `true`                   |
+| Variable                | Standard                | Zweck                                                           |
+| ----------------------- | ----------------------- | --------------------------------------------------------------- |
+| `NODE_ENV`              | `development`           | `production` aktiviert zusätzliche Startregeln und HSTS         |
+| `DATABASE_URL`          | – (Pflicht)             | PostgreSQL-Verbindung                                           |
+| `SERVER_PORT`           | `3000`                  | HTTP-Port des Servers                                           |
+| `CLIENT_ORIGIN`         | `http://localhost:4200` | Exakter HTTP(S)-Origin; in Produktion explizit erforderlich     |
+| `TRUST_PROXY_HOPS`      | `0`                     | Zahl explizit vertrauter Reverse-Proxy-Hops; Produktion Pflicht |
+| `SESSION_TTL_HOURS`     | `24`                    | Session-Lebensdauer, fester Ablauf ohne Sliding                 |
+| `SIMULATION_SPEED`      | `60`                    | Simulationssekunden pro realer Sekunde                          |
+| `SESSION_COOKIE_SECURE` | `false`                 | Lokal HTTP; in Produktion zwingend `true`                       |
 
 ## Produktionsanforderungen
 
 - `CLIENT_ORIGIN` enthält nur Scheme, Host und optional Port — keine
   Credentials, Pfade, Query oder Fragmente — und sollte HTTPS verwenden.
 - Der Server startet mit `NODE_ENV=production` nur, wenn
-  `CLIENT_ORIGIN` explizit gesetzt und `SESSION_COOKIE_SECURE=true` ist.
+  `CLIENT_ORIGIN` und `TRUST_PROXY_HOPS` explizit gesetzt sowie
+  `SESSION_COOKIE_SECURE=true` ist. Hinter dem Compose-Caddy ist genau ein
+  Proxy-Hop vertrauenswürdig; direkte Internet-Proxys dürfen nicht pauschal
+  vertraut werden.
 - Credentialed CORS und Socket.IO akzeptieren nur diesen Origin. Unsichere
   REST-Methoden prüfen ihn zusätzlich als CSRF-Schutz; ein Browser-CORS-Header
   allein wäre dafür nicht ausreichend.
 - Restriktive CSP, Permissions-/Referrer-Policy, `nosniff`, Frame-Schutz,
   deaktiviertes `X-Powered-By` und in Produktion HSTS werden zentral gesetzt.
-- Bereits verbundene WebSockets prüfen vor jedem Command erneut die Session,
-  sodass Logout oder Ablauf beim nächsten Command zur Trennung führt.
-- Das Auth-Rate-Limit ist prozesslokal. Vor horizontaler Skalierung muss ein
-  gemeinsamer Bucket-Store eingesetzt und die Proxy-/Client-IP-Konfiguration
-  bewusst festgelegt werden.
+- WebSockets prüfen die Session einmal beim Handshake. Das lokale
+  Session-Socket-Register trennt bei Logout oder festem Ablauf sofort alle
+  zugehörigen Tabs, ohne einen DB-Lookup pro Command.
+- Auth-Rate-Limit-Buckets liegen atomar in PostgreSQL. Damit teilen Replikate
+  dieselben Grenzen; die korrekte Client-IP hängt an der bewusst gesetzten
+  Proxy-Grenze.

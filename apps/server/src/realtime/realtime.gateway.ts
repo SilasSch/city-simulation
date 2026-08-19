@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, type OnApplicationShutdown } from '@nestjs/common';
 import {
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -11,7 +11,12 @@ import {
   CONNECT_COMMAND_TYPE,
   PROTOCOL_ERROR_EVENT_TYPE,
   PROTOCOL_VERSION,
+  SIMULATION_CLOCK_EVENT_TYPE,
   WORLD_ENTER_COMMAND_TYPE,
+  WORLD_ENTITY_JOINED_EVENT_TYPE,
+  WORLD_ENTITY_LEFT_EVENT_TYPE,
+  WORLD_ENTITY_UPDATED_EVENT_TYPE,
+  WORLD_INTERACT_COMMAND_TYPE,
   WORLD_MOVE_COMMAND_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
@@ -22,9 +27,15 @@ import {
 } from '@city/game-protocol';
 import { AuthService } from '../auth/auth.service';
 import { SessionCookieService } from '../auth/session-cookie.service';
+import { SessionSocketRegistry } from '../auth/session-socket-registry.service';
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal';
 import { ApplicationError } from '../shared/application-error';
+import { SimulationService } from '../simulation/simulation.service';
 import { WORLD_ROOM, type EnteredWorldContext } from '../world/world.constants';
+import {
+  WorldPresenceService,
+  type PresenceDeparture,
+} from '../world/world-presence.service';
 import { WorldService } from '../world/world.service';
 import { RealtimeMessageService } from './realtime-message.service';
 
@@ -48,15 +59,23 @@ interface SocketData {
  */
 @WebSocketGateway()
 export class RealtimeGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+  implements
+    OnGatewayInit,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnApplicationShutdown
 {
   private readonly logger = new Logger(RealtimeGateway.name);
+  private simulationTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly messages: RealtimeMessageService,
     private readonly auth: AuthService,
     private readonly sessionCookie: SessionCookieService,
+    private readonly socketSessions: SessionSocketRegistry,
     private readonly world: WorldService,
+    private readonly presence: WorldPresenceService,
+    private readonly simulation: SimulationService,
   ) {}
 
   afterInit(server: Server): void {
@@ -82,6 +101,23 @@ export class RealtimeGateway
           return;
         }
         (socket.data as SocketData).principal = resolution.session.principal;
+        this.socketSessions.register(
+          token,
+          resolution.session.expiresAt,
+          socket.id,
+          (reason) => {
+            this.emitError(
+              socket,
+              reason === 'expired'
+                ? 'SESSION_EXPIRED'
+                : 'AUTHENTICATION_REQUIRED',
+              reason === 'expired'
+                ? 'Session expired'
+                : 'Authentication required',
+            );
+            socket.disconnect(true);
+          },
+        );
         next();
       } catch (error) {
         this.logger.error(
@@ -91,6 +127,15 @@ export class RealtimeGateway
         next(new Error('authentication failed'));
       }
     });
+    this.simulationTimer = setInterval(() => {
+      void this.broadcastSimulationTick(server);
+    }, 1_000);
+    this.simulationTimer.unref();
+  }
+
+  onApplicationShutdown(): void {
+    if (this.simulationTimer) clearInterval(this.simulationTimer);
+    this.simulationTimer = null;
   }
 
   handleConnection(client: Socket): void {
@@ -101,7 +146,13 @@ export class RealtimeGateway
     });
   }
 
-  handleDisconnect(client: Socket): void {
+  async handleDisconnect(client: Socket): Promise<void> {
+    this.socketSessions.unregister(client.id);
+    const departure = this.presence.leave(client.id);
+    if (departure?.lastSocket) {
+      await this.simulation.abortInteraction(departure.characterId);
+    }
+    this.announceDeparture(client, departure);
     this.logger.log({
       event: 'client-disconnected',
       socketId: client.id,
@@ -111,8 +162,6 @@ export class RealtimeGateway
 
   @SubscribeMessage(PROTOCOL_CHANNEL)
   async handleProtocolMessage(client: Socket, raw: unknown): Promise<void> {
-    if (!(await this.revalidateSession(client))) return;
-
     const socketData = client.data as SocketData;
     const parsed = parseIncomingMessage(raw);
 
@@ -159,21 +208,71 @@ export class RealtimeGateway
           // Erst ein erfolgreicher Eintritt darf den Socket-Kontext setzen.
           // Ein fehlgeschlagener Re-Enter lässt keinen alten Kontext zurück.
           await client.leave(WORLD_ROOM);
+          const departure = this.presence.leave(client.id);
+          if (departure?.lastSocket) {
+            await this.simulation.abortInteraction(departure.characterId);
+          }
+          this.announceDeparture(client, departure);
           delete socketData.world;
           const entry = await this.world.enter(
             socketData.principal,
             parsed.payload.zoneId,
           );
+          const self = entry.snapshot.entities.find(
+            (entity) => entity.characterId === entry.context.characterId,
+          );
+          if (!self) {
+            throw new ApplicationError(
+              'PERSISTENCE_ERROR',
+              503,
+              'Entered character is missing from the world snapshot',
+            );
+          }
+
+          const firstSocketForCharacter = this.presence.enter(client.id, self);
           await client.join(WORLD_ROOM);
           socketData.world = entry.context;
           client.emit(
             PROTOCOL_CHANNEL,
             createMessage(
               WORLD_SNAPSHOT_EVENT_TYPE,
-              entry.snapshot,
+              {
+                ...entry.snapshot,
+                entities: this.presence.entities(),
+              },
               parsed.envelope.requestId,
             ),
           );
+          if (firstSocketForCharacter) {
+            client
+              .to(WORLD_ROOM)
+              .emit(
+                PROTOCOL_CHANNEL,
+                createMessage(WORLD_ENTITY_JOINED_EVENT_TYPE, { entity: self }),
+              );
+          }
+          return;
+        }
+        case WORLD_INTERACT_COMMAND_TYPE: {
+          if (!socketData.world) {
+            throw new ApplicationError(
+              'WORLD_NOT_ENTERED',
+              409,
+              'Enter the world before interacting',
+            );
+          }
+          const entity = await this.world.interact(
+            socketData.principal,
+            socketData.world,
+            parsed.payload.objectId,
+          );
+          this.presence.update(entity);
+          client.nsp
+            .to(WORLD_ROOM)
+            .emit(
+              PROTOCOL_CHANNEL,
+              createMessage(WORLD_ENTITY_UPDATED_EVENT_TYPE, { entity }),
+            );
           return;
         }
         case WORLD_MOVE_COMMAND_TYPE: {
@@ -189,6 +288,7 @@ export class RealtimeGateway
             socketData.world,
             parsed.payload.direction,
           );
+          this.presence.update(entity);
           client.nsp
             .to(WORLD_ROOM)
             .emit(
@@ -206,6 +306,11 @@ export class RealtimeGateway
       if (error instanceof ApplicationError) {
         if (error.code === 'WORLD_NOT_ENTERED') {
           await client.leave(WORLD_ROOM);
+          const departure = this.presence.leave(client.id);
+          if (departure?.lastSocket) {
+            await this.simulation.abortInteraction(departure.characterId);
+          }
+          this.announceDeparture(client, departure);
           delete socketData.world;
         }
         this.emitError(
@@ -229,41 +334,49 @@ export class RealtimeGateway
     }
   }
 
-  /**
-   * Logout und Ablauf invalidieren auch bereits verbundene Sockets spätestens
-   * vor ihrem nächsten Command. Die DB-Abfrage pro Nachricht ist für den
-   * kleinen Slice bewusst zugunsten eines einfachen Sicherheitsmodells gewählt.
-   */
-  private async revalidateSession(client: Socket): Promise<boolean> {
-    const socketData = client.data as SocketData;
-    try {
-      const resolution = await this.auth.resolvePrincipal(
-        socketData.principal.sessionId,
-      );
-      if (resolution.status === 'ok') {
-        socketData.principal = resolution.session.principal;
-        return true;
-      }
+  private async broadcastSimulationTick(server: Server): Promise<void> {
+    const characterIds = this.presence
+      .entities()
+      .map((entity) => entity.characterId);
+    if (characterIds.length === 0) return;
 
-      this.emitError(
-        client,
-        resolution.status === 'expired'
-          ? 'SESSION_EXPIRED'
-          : 'AUTHENTICATION_REQUIRED',
-        resolution.status === 'expired'
-          ? 'Session expired'
-          : 'Authentication required',
-      );
+    try {
+      const tick = await this.simulation.tick(characterIds);
+      server
+        .to(WORLD_ROOM)
+        .emit(
+          PROTOCOL_CHANNEL,
+          createMessage(SIMULATION_CLOCK_EVENT_TYPE, tick.clock),
+        );
+      for (const entity of tick.entities) {
+        this.presence.update(entity);
+        server
+          .to(WORLD_ROOM)
+          .emit(
+            PROTOCOL_CHANNEL,
+            createMessage(WORLD_ENTITY_UPDATED_EVENT_TYPE, { entity }),
+          );
+      }
     } catch (error) {
       this.logger.error(
-        'Session revalidation during websocket command failed',
+        'Simulation tick failed',
         error instanceof Error ? error.stack : String(error),
       );
-      this.emitError(client, 'UNEXPECTED_ERROR', 'Session validation failed');
     }
+  }
 
-    client.disconnect(true);
-    return false;
+  private announceDeparture(
+    client: Socket,
+    departure: PresenceDeparture | null,
+  ): void {
+    if (!departure?.lastSocket) return;
+
+    client.nsp.to(WORLD_ROOM).emit(
+      PROTOCOL_CHANNEL,
+      createMessage(WORLD_ENTITY_LEFT_EVENT_TYPE, {
+        characterId: departure.characterId,
+      }),
+    );
   }
 
   private emitError(

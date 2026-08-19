@@ -38,10 +38,13 @@ const envSchema = z
       .enum(['development', 'production', 'test'])
       .default('development'),
     SERVER_PORT: z.coerce.number().int().positive().default(3000),
+    TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(2).default(0),
     DATABASE_URL: z.string().min(1),
     CLIENT_ORIGIN: clientOriginSchema.default('http://localhost:4200'),
     // Lebensdauer einer Session in Stunden (fester Ablauf, kein Sliding).
     SESSION_TTL_HOURS: z.coerce.number().int().positive().default(24),
+    // Verhältnis reale Sekunde zu Simulationssekunden.
+    SIMULATION_SPEED: z.coerce.number().positive().max(3600).default(60),
     // Secure-Flag des Session-Cookies. Lokal false (HTTP), in Produktion true.
     SESSION_COOKIE_SECURE: z
       .enum(['true', 'false'])
@@ -61,6 +64,12 @@ const envSchema = z
 export type AppConfig = z.infer<typeof envSchema>;
 
 export function validateEnv(env: NodeJS.ProcessEnv): AppConfig {
+  if (env.NODE_ENV === 'production' && env.TRUST_PROXY_HOPS === undefined) {
+    throw new Error(
+      'Invalid server configuration: TRUST_PROXY_HOPS: must be explicitly set in production',
+    );
+  }
+
   if (env.NODE_ENV === 'production' && env.CLIENT_ORIGIN === undefined) {
     throw new Error(
       'Invalid server configuration: CLIENT_ORIGIN: must be explicitly set in production',

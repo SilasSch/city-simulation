@@ -65,6 +65,12 @@ export class CharacterService {
     );
   }
 
+  delete(id: string): Observable<void> {
+    return this.http
+      .delete<void>(`/api/characters/${id}`)
+      .pipe(tap(() => this.loadAll()));
+  }
+
   select(id: string): Observable<CharacterDto> {
     return this.http.post<unknown>(`/api/characters/${id}/select`, {}).pipe(
       map((raw) => characterDtoSchema.parse(raw)),

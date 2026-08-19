@@ -5,6 +5,7 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { PrismaService } from '../persistence/prisma.service';
+import { SessionSocketRegistry } from './session-socket-registry.service';
 
 export const SESSION_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
 
@@ -20,7 +21,10 @@ export class SessionCleanupService
   private readonly logger = new Logger(SessionCleanupService.name);
   private cleanupTimer: NodeJS.Timeout | undefined;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly socketSessions: SessionSocketRegistry,
+  ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     await this.removeExpiredSessions();
@@ -45,11 +49,18 @@ export class SessionCleanupService
   }
 
   async removeExpiredSessions(now = new Date()): Promise<number> {
+    const expired = await this.prisma.session.findMany({
+      where: { expiresAt: { lte: now } },
+      select: { id: true },
+    });
     const result = await this.prisma.session.deleteMany({
       where: {
-        expiresAt: { lte: now },
+        id: { in: expired.map((session) => session.id) },
       },
     });
+    for (const session of expired) {
+      this.socketSessions.revoke(session.id, 'expired');
+    }
 
     if (result.count > 0) {
       this.logger.log({

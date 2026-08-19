@@ -44,7 +44,7 @@ model PlayerProfile {
   // dass der ausgewählte Character DIESEM Profil gehört. Ein fremder
   // Character scheitert am Constraint, NULL ist erlaubt (keine Auswahl).
   selectedCharacterId String?
-  selectedCharacter   Character?  @relation("SelectedCharacter", fields: [selectedCharacterId, id], references: [id, playerProfileId], onDelete: SetNull)
+  selectedCharacter   Character?  @relation("SelectedCharacter", fields: [selectedCharacterId, id], references: [id, playerProfileId], onDelete: Restrict)
   characters          Character[]
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
@@ -73,13 +73,36 @@ model Character {
 // Persistenter, serverautoritärer Zustand eines Characters in der Spielwelt.
 // Die Zone selbst bleibt für den minimalen Slice eine statische Codekonstante.
 model CharacterWorldState {
-  characterId String    @id
-  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
-  zoneId      String
-  x           Int
-  y           Int
-  revision    Int       @default(0)
-  updatedAt   DateTime  @updatedAt
+  characterId          String    @id
+  character            Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  zoneId               String
+  x                    Int
+  y                    Int
+  revision             Int       @default(0)
+  energy               Float     @default(100)
+  energyUpdatedAt      DateTime  @default(now())
+  interactionObjectId  String?
+  interactionStartedAt DateTime?
+  interactionEndsAt    DateTime?
+  updatedAt            DateTime  @updatedAt
 
   @@index([zoneId])
+  @@index([interactionEndsAt])
+}
+
+model SimulationClock {
+  id          String   @id
+  simulatedAt DateTime
+  realAt      DateTime
+  speed       Float
+  updatedAt   DateTime @updatedAt
+}
+
+model AuthRateLimitBucket {
+  key             String   @id
+  count           Int
+  windowStartedAt DateTime
+  expiresAt       DateTime
+
+  @@index([expiresAt])
 }

@@ -22,6 +22,7 @@ describe('StatusViewComponent', () => {
       connectionState: signal('connected'),
       connectionId: signal('conn-1'),
       protocolError: signal(null),
+      connectionDetail: signal(null),
       lastMessageType: signal('connection-established'),
     };
 
@@ -47,7 +48,7 @@ describe('StatusViewComponent', () => {
   it('shows the websocket connection state', () => {
     const el: HTMLElement = fixture.nativeElement;
     expect(el.querySelector('[data-testid="ws-state"]')?.textContent).toContain(
-      'connected',
+      'Verbunden',
     );
     expect(
       el.querySelector('[data-testid="last-message"]')?.textContent,

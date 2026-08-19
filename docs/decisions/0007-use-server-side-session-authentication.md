@@ -1,6 +1,6 @@
 # 0007: Serverseitige Session-Authentifizierung
 
-- **Status:** Akzeptiert
+- **Status:** Teilweise ersetzt durch ADR 0012 und 0013
 - **Datum:** 2026-07-22
 - **Aktualisiert:** 2026-08-12
 

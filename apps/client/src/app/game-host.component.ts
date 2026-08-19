@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import Phaser from 'phaser';
 import { GameEngineService } from './game-engine.service';
+import { RealtimeService } from './realtime.service';
 import { WorldStateService } from './world-state.service';
 
 /**
@@ -28,6 +29,32 @@ import { WorldStateService } from './world-state.service';
       <p data-testid="world-zone">
         Zone: {{ world.zoneId() ?? 'noch nicht betreten' }}
       </p>
+      @if (realtime.connectionState() === 'connected' && !world.zoneId()) {
+        <p data-testid="world-loading">Spielwelt wird geladen…</p>
+      }
+      <p data-testid="world-player-count">
+        Sichtbare Characters: {{ world.entities().length }}
+      </p>
+      <p data-testid="simulation-time">
+        Simulationszeit: {{ simulationTimeText() }}
+      </p>
+      @if (world.selfEntity(); as self) {
+        <p data-testid="energy">Energy: {{ self.energy.toFixed(1) }} / 100</p>
+        @if (self.interaction; as interaction) {
+          <p data-testid="interaction-state">
+            Ruht auf der Bank:
+            {{ (interaction.progress * 100).toFixed(0) }} %
+          </p>
+        }
+        <button
+          type="button"
+          data-testid="rest-action"
+          [disabled]="!!self.interaction"
+          (click)="world.interact('bench-south')"
+        >
+          Auf der südlichen Bank ausruhen
+        </button>
+      }
       <p>Steuerung: WASD oder Pfeiltasten</p>
       <div #gameContainer class="game-container"></div>
     </section>
@@ -40,9 +67,20 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
   protected readonly engineBooted = signal(false);
 
   private readonly engine = inject(GameEngineService);
+  protected readonly realtime = inject(RealtimeService);
   protected readonly world = inject(WorldStateService);
   private readonly zone = inject(NgZone);
   private game: Phaser.Game | null = null;
+
+  protected simulationTimeText(): string {
+    const value = this.world.simulatedTime();
+    if (!value) return 'wird synchronisiert…';
+    return new Intl.DateTimeFormat('de-DE', {
+      dateStyle: 'medium',
+      timeStyle: 'medium',
+      timeZone: 'UTC',
+    }).format(new Date(value));
+  }
 
   ngAfterViewInit(): void {
     this.zone.runOutsideAngular(() => {

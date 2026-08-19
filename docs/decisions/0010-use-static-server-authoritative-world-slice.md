@@ -1,6 +1,6 @@
 # 0010: Minimaler serverautoritärer World-Slice in statischer Zone
 
-- **Status:** Akzeptiert
+- **Status:** Teilweise fortgeschrieben durch ADR 0011 und 0013
 - **Datum:** 2026-08-12
 
 ## Kontext
