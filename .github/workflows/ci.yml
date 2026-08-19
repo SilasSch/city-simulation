@@ -39,6 +39,35 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Playwright versions are tied to specific browser revisions. Keying the
+      # browser cache by the installed package version makes upgrades invalidate
+      # it deterministically without caching node_modules.
+      - name: Read Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Playwright browser cache
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-chromium
+
+      # install-deps runs on both paths because the browser cache cannot provide
+      # host libraries. `playwright install` validates the expected revision: it
+      # reuses a complete cached browser and downloads it on a miss/incomplete hit.
+      - name: Prepare Playwright Chromium
+        env:
+          PLAYWRIGHT_CACHE_HIT: ${{ steps.playwright-cache.outputs.cache-hit }}
+        run: |
+          if [ "$PLAYWRIGHT_CACHE_HIT" = "true" ]; then
+            echo "Playwright Chromium cache hit; validating the cached browser."
+          else
+            echo "Playwright Chromium cache miss; downloading the required browser."
+          fi
+          pnpm exec playwright install-deps chromium
+          pnpm exec playwright install chromium
+
       - name: Prepare environment
         run: cp .env.example .env
 
@@ -60,9 +89,6 @@ jobs:
 
       - name: Test
         run: pnpm test
-
-      - name: Install Playwright browser
-        run: pnpm exec playwright install --with-deps chromium
 
       - name: End-to-end smoke test
         run: pnpm e2e
