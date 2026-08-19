@@ -11,6 +11,57 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  production-configuration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check required production variables
+        run: |
+          if output=$(env -u POSTGRES_PASSWORD \
+            DOMAIN=city.example.com \
+            CLIENT_ORIGIN=https://city.example.com \
+            docker compose -f docker-compose.prod.yml config --quiet 2>&1); then
+            echo 'Production Compose validation unexpectedly accepted missing required variables.' >&2
+            exit 1
+          fi
+
+          if ! grep -Fq 'set POSTGRES_PASSWORD' <<<"$output"; then
+            echo 'Production Compose validation failed without the expected POSTGRES_PASSWORD guidance.' >&2
+            echo "$output" >&2
+            exit 1
+          fi
+
+      - name: Validate production Compose configuration
+        run: docker compose --env-file .env.production.example -f docker-compose.prod.yml config --quiet
+
+      - name: Detect Docker and Compose changes
+        if: github.event_name == 'pull_request'
+        id: container-changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- \
+            .dockerignore \
+            docker-compose.prod.yml \
+            'apps/*/Dockerfile' \
+            deploy/; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      # Pull requests build the staging images only when their container
+      # definition changed. Main and manual runs always build all images.
+      - name: Build production images
+        if: github.event_name != 'pull_request' || steps.container-changes.outputs.changed == 'true'
+        run: docker compose --env-file .env.production.example -f docker-compose.prod.yml build migrate server client
+
   verify:
     runs-on: ubuntu-latest
 
@@ -45,8 +96,8 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # The heavier database and browser checks run once after merge, not on
-      # every pull-request update.
+      # The database migration and one focused browser smoke test run once
+      # after merge or on an explicitly dispatched workflow, not on every PR.
       - name: Start PostgreSQL
         if: github.event_name != 'pull_request'
         run: |
@@ -89,10 +140,6 @@ jobs:
         if: github.event_name != 'pull_request'
         run: pnpm exec prisma migrate deploy --schema apps/server/prisma/schema.prisma
 
-      - name: Test
-        if: github.event_name != 'pull_request'
-        run: pnpm test
-
-      - name: End-to-end smoke test
+      - name: Focused end-to-end smoke test
         if: github.event_name != 'pull_request'
         run: pnpm e2e

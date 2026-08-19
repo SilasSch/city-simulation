@@ -75,6 +75,16 @@ Die Konfiguration ohne Start validieren:
 das Skript ausschließlich `config --quiet`; die vollständig expandierte
 Konfiguration nicht in Logs oder Tickets ausgeben.
 
+Die CI führt dieselbe statische Compose-Validierung mit den ungefährlichen
+Beispielwerten aus und prüft zusätzlich, dass eine fehlende Pflichtvariable mit
+einem verständlichen Hinweis abgewiesen wird. Auf Pull Requests baut sie die
+Produktionsziele für Migration, Server und Client nur, wenn sich
+`.dockerignore`, Compose, ein Dockerfile oder die Dateien unter `deploy/`
+ändern. Läufe auf `main` und manuell gestartete Workflows bauen die Images
+immer. Normale Pull Requests bleiben bei Format-, Lint- und Build-Prüfungen;
+nach dem Merge beziehungsweise bei einem manuellen Lauf folgen einmalig die
+Datenbankmigration und der fokussierte Browser-Smoke-Test.
+
 ## Erstinstallation
 
 Den gewünschten, geprüften Commit explizit angeben (kein beweglicher
@@ -100,9 +110,18 @@ docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail
 ```
 
 **MANUELL:** Beispieldomain im `curl`-Befehl ersetzen, Zertifikat im Browser
-prüfen, Registrierung/Login, Neuladen und eine WebSocket-Bewegung testen. Caddy
-kann erst nach korrektem DNS und erreichbaren Ports ein öffentliches Zertifikat
-beziehen.
+prüfen und anschließend diesen kurzen Staging-Smoke-Check durchführen:
+
+1. In `ps` prüfen, dass `migrate` erfolgreich beendet wurde und PostgreSQL,
+   Server, Client sowie Caddy gesund beziehungsweise gestartet sind.
+2. `/api/health` per HTTPS abrufen und eine erfolgreiche Antwort erwarten.
+3. Im Browser Registrierung oder Login, Neuladen und eine
+   WebSocket-Bewegung prüfen.
+
+Caddy kann erst nach korrektem DNS und erreichbaren Ports ein öffentliches
+Zertifikat beziehen. Diese manuellen Schritte bleiben bewusst auf dem echten
+Staging-Server und werden nicht als Compose-Stack oder Browser-E2E in der
+Pull-Request-CI dupliziert.
 
 ## Reproduzierbares Update
 
