@@ -22,7 +22,9 @@ jobs:
 
       - name: Check required production variables
         run: |
-          if output=$(env -u POSTGRES_PASSWORD -u DOMAIN -u CLIENT_ORIGIN \
+          if output=$(env -u POSTGRES_PASSWORD \
+            DOMAIN=city.example.com \
+            CLIENT_ORIGIN=https://city.example.com \
             docker compose -f docker-compose.prod.yml config --quiet 2>&1); then
             echo 'Production Compose validation unexpectedly accepted missing required variables.' >&2
             exit 1
