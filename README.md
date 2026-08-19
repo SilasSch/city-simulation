@@ -38,7 +38,7 @@ WASD oder Pfeiltasten senden validierte Bewegungs-Commands; erst das
 Serverevent bewegt den Phaser-Marker. Position, Auswahl und Session werden
 beim Reload wiederhergestellt.
 
-## Produktionsbetrieb mit Docker Compose
+## Staging-/Produktionsbetrieb mit Docker Compose
 
 Der Produktions-Stack baut Client und Server in Multi-Stage-Images, hält
 PostgreSQL ausschließlich in einem internen Docker-Netz und veröffentlicht nur
@@ -52,7 +52,7 @@ cp .env.production.example .env.production
 # POSTGRES_PASSWORD und CLIENT_ORIGIN in .env.production sicher setzen
 docker compose --env-file .env.production -f docker-compose.prod.yml up --build -d
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
-curl --fail http://localhost:${HTTP_PORT:-80}/api/health
+curl --fail https://staging.city.example.com/api/health
 ```
 
 Das benannte Volume `postgres-production-data` überlebt Container-Neustarts
@@ -61,24 +61,16 @@ löscht dagegen Accounts, Characters, Sessions und World-Positionen endgültig.
 Die echte `.env.production` darf nicht committed werden (das Repository nimmt
 nur die Platzhalterdatei auf).
 
-Der Stack terminiert bewusst kein TLS. In Produktion muss vor Port 80 ein
-TLS-terminierender Load-Balancer oder Host-Proxy stehen und
-`CLIENT_ORIGIN=https://…` exakt dessen öffentliche Origin entsprechen. Das ist
-für das erzwungene Secure-Session-Cookie erforderlich. Werden Zugangsdaten mit
-reservierten URL-Zeichen verwendet, müssen sie in `DATABASE_URL` URL-kodiert
-sein; für solche Credentials sollte die Compose-Datei über eine
-Deployment-spezifische Secret-Injektion eine bereits kodierte URL erhalten.
+Der Stack terminiert TLS mit Caddy und veröffentlicht ausschließlich Ports 80
+und 443. Die vollständige, auf einen einzelnen Staging-Server zugeschnittene
+Anleitung einschließlich DNS/TLS, Erstinstallation, Updates, Backups,
+Wiederherstellung und Rollback steht in
+[`docs/deployment/single-server-staging.md`](docs/deployment/single-server-staging.md).
 
-Aktualisierung und Rollback:
-
-1. Vor dem Update ein PostgreSQL-Backup erstellen.
-2. Neue Images mit demselben Compose-Befehl bauen und starten. Migrationen
-   laufen vor dem neuen Server und müssen rückwärtskompatibel mit dem zuletzt
-   laufenden Image sein.
-3. Für ein Anwendungs-Rollback das vorherige Image wieder starten. Prisma
-   rollt Migrationen nicht automatisch zurück; ein Schema-/Daten-Rollback
-   benötigt eine explizite Vorwärtsmigration oder die Wiederherstellung des
-   Backups.
+`CLIENT_ORIGIN=https://…` muss exakt der öffentlichen Origin entsprechen, damit
+Secure-Session-Cookies, REST-Origin-Schutz und WebSocket-Allowlist
+übereinstimmen. Echte Zugangsdaten bleiben ausschließlich in der ignorierten
+`.env.production` auf dem Server.
 
 ## Befehle
 

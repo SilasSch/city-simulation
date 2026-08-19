@@ -52,9 +52,13 @@ vitest.config.*.timestamp*
 .angular
 
 __screenshots__/
+/backups/
 
 # environment
 .env
+.env.production
+.env.production.*
+!.env.production.example
 
 # angular cache
 .angular/
