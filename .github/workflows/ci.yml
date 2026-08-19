@@ -4,25 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: city
-          POSTGRES_PASSWORD: city
-          POSTGRES_DB: city_simulation
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U city -d city_simulation"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
 
     steps:
       - uses: actions/checkout@v7
@@ -39,59 +29,70 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Playwright versions are tied to specific browser revisions. Keying the
-      # browser cache by the installed package version makes upgrades invalidate
-      # it deterministically without caching node_modules.
-      - name: Read Playwright version
-        id: playwright-version
-        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
-
-      - name: Restore Playwright browser cache
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-chromium
-
-      # install-deps runs on both paths because the browser cache cannot provide
-      # host libraries. `playwright install` validates the expected revision: it
-      # reuses a complete cached browser and downloads it on a miss/incomplete hit.
-      - name: Prepare Playwright Chromium
-        env:
-          PLAYWRIGHT_CACHE_HIT: ${{ steps.playwright-cache.outputs.cache-hit }}
-        run: |
-          if [ "$PLAYWRIGHT_CACHE_HIT" = "true" ]; then
-            echo "Playwright Chromium cache hit; validating the cached browser."
-          else
-            echo "Playwright Chromium cache miss; downloading the required browser."
-          fi
-          pnpm exec playwright install-deps chromium
-          pnpm exec playwright install chromium
-
       - name: Prepare environment
         run: cp .env.example .env
 
-      # migrate deploy statt migrate dev: nicht-interaktiv und CI-tauglich
-      # (migrate dev fragt bei Migrations-Warnungen interaktiv nach).
-      - name: Run database migrations
-        run: pnpm exec prisma migrate deploy --schema apps/server/prisma/schema.prisma
-
-      # Der Prisma-Client wird nicht per postinstall generiert (Schema liegt
-      # nicht im Standardpfad) — explizit vor Lint/Test/Build erzeugen.
       - name: Generate Prisma client
         run: pnpm exec prisma generate --schema apps/server/prisma/schema.prisma
 
+      # Pull requests intentionally use only this fast feedback loop.
       - name: Check formatting
         run: pnpm format:check
 
       - name: Lint
         run: pnpm lint
 
+      - name: Build
+        run: pnpm build
+
+      # The heavier database and browser checks run once after merge, not on
+      # every pull-request update.
+      - name: Start PostgreSQL
+        if: github.event_name != 'pull_request'
+        run: |
+          docker run -d --name city-ci-postgres \
+            -e POSTGRES_USER=city \
+            -e POSTGRES_PASSWORD=city \
+            -e POSTGRES_DB=city_simulation \
+            -p 5432:5432 \
+            postgres:16-alpine
+          for attempt in {1..20}; do
+            if docker exec city-ci-postgres pg_isready -U city -d city_simulation; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs city-ci-postgres
+          exit 1
+
+      - name: Read Playwright version
+        if: github.event_name != 'pull_request'
+        id: playwright-version
+        run: echo "version=$(node -p \"require('@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Playwright browser cache
+        if: github.event_name != 'pull_request'
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-chromium
+
+      # GitHub-hosted runners already contain the required shared libraries.
+      # Only download Chromium on a cold cache miss; do not apt-install system
+      # packages on every run.
+      - name: Install Playwright Chromium on cache miss
+        if: github.event_name != 'pull_request' && steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium
+
+      - name: Run database migrations
+        if: github.event_name != 'pull_request'
+        run: pnpm exec prisma migrate deploy --schema apps/server/prisma/schema.prisma
+
       - name: Test
+        if: github.event_name != 'pull_request'
         run: pnpm test
 
       - name: End-to-end smoke test
+        if: github.event_name != 'pull_request'
         run: pnpm e2e
-
-      - name: Build
-        run: pnpm build
