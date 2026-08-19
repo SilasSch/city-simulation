@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-city}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-city_simulation}
+    volumes:
+      - postgres-production-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - backend
+
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+      target: migration
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-city}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-city_simulation}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      SERVER_PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-city}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-city_simulation}
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:?set CLIENT_ORIGIN to the public origin}
+      SESSION_COOKIE_SECURE: 'true'
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-24}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks:
+      - backend
+      - edge
+
+  client:
+    build:
+      context: .
+      dockerfile: apps/client/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    ports:
+      - '${HTTP_PORT:-80}:8080'
+    depends_on:
+      server:
+        condition: service_healthy
+    networks:
+      - edge
+
+volumes:
+  postgres-production-data:
+
+networks:
+  backend:
+    internal: true
+  edge:
