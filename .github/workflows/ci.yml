@@ -78,11 +78,12 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-chromium
 
-      - name: Prepare Playwright Chromium
-        if: github.event_name != 'pull_request'
-        run: |
-          pnpm exec playwright install-deps chromium
-          pnpm exec playwright install chromium
+      # GitHub-hosted runners already contain the required shared libraries.
+      # Only download Chromium on a cold cache miss; do not apt-install system
+      # packages on every run.
+      - name: Install Playwright Chromium on cache miss
+        if: github.event_name != 'pull_request' && steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium
 
       - name: Run database migrations
         if: github.event_name != 'pull_request'
