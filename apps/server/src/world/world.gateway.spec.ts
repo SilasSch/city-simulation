@@ -160,7 +160,7 @@ describe('World via RealtimeGateway (integration)', () => {
         characterId: player.characterId,
         name: 'Ayla',
         x: 50,
-        y: 50,
+        y: 70,
       },
     ]);
     await enter(second.socket);
@@ -180,7 +180,7 @@ describe('World via RealtimeGateway (integration)', () => {
         characterId: player.characterId,
         name: 'Ayla',
         x: 55,
-        y: 50,
+        y: 70,
       });
     }
 
@@ -194,7 +194,7 @@ describe('World via RealtimeGateway (integration)', () => {
       restored.entities.find(
         (entity) => entity.characterId === player.characterId,
       ),
-    ).toMatchObject({ x: 55, y: 50 });
+    ).toMatchObject({ x: 55, y: 70 });
   });
 
   it('disconnects a socket whose session was revoked before the command', async () => {
