@@ -101,8 +101,18 @@ describe('World via RealtimeGateway (integration)', () => {
     };
   }
 
-  function nextMessage(socket: Socket): Promise<ProtocolMessage<unknown>> {
-    return new Promise((resolve) => socket.once(PROTOCOL_CHANNEL, resolve));
+  function nextMessage(
+    socket: Socket,
+    expectedType?: string,
+  ): Promise<ProtocolMessage<unknown>> {
+    return new Promise((resolve) => {
+      const listener = (message: ProtocolMessage<unknown>): void => {
+        if (expectedType && message.type !== expectedType) return;
+        socket.off(PROTOCOL_CHANNEL, listener);
+        resolve(message);
+      };
+      socket.on(PROTOCOL_CHANNEL, listener);
+    });
   }
 
   function enter(socket: Socket): Promise<ProtocolMessage<unknown>> {
@@ -155,18 +165,26 @@ describe('World via RealtimeGateway (integration)', () => {
     expect(firstSnapshot.type).toBe(WORLD_SNAPSHOT_EVENT_TYPE);
     const snapshot = worldSnapshotPayloadSchema.parse(firstSnapshot.payload);
     expect(snapshot.selfCharacterId).toBe(player.characterId);
-    expect(snapshot.entities).toEqual([
-      {
-        characterId: player.characterId,
-        name: 'Ayla',
-        x: 50,
-        y: 70,
-      },
-    ]);
+    expect(snapshot.clock.speed).toBe(60);
+    expect(snapshot.entities).toHaveLength(1);
+    expect(snapshot.entities[0]).toMatchObject({
+      characterId: player.characterId,
+      name: 'Ayla',
+      x: 50,
+      y: 70,
+      interaction: null,
+    });
+    expect(snapshot.entities[0]?.energy).toBeGreaterThan(99);
     await enter(second.socket);
 
-    const firstEvent = nextMessage(first.socket);
-    const secondEvent = nextMessage(second.socket);
+    const firstEvent = nextMessage(
+      first.socket,
+      WORLD_POSITION_CHANGED_EVENT_TYPE,
+    );
+    const secondEvent = nextMessage(
+      second.socket,
+      WORLD_POSITION_CHANGED_EVENT_TYPE,
+    );
     first.socket.emit(
       PROTOCOL_CHANNEL,
       createMessage(WORLD_MOVE_COMMAND_TYPE, { direction: 'E' }),
@@ -176,11 +194,12 @@ describe('World via RealtimeGateway (integration)', () => {
       expect(response.type).toBe(WORLD_POSITION_CHANGED_EVENT_TYPE);
       expect(
         worldPositionChangedPayloadSchema.parse(response.payload).entity,
-      ).toEqual({
+      ).toMatchObject({
         characterId: player.characterId,
         name: 'Ayla',
         x: 55,
         y: 70,
+        interaction: null,
       });
     }
 
