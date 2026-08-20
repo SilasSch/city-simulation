@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import {
   CENTRAL_SQUARE_COLLIDERS,
   WORLD_COORDINATE_MAX,
+  WORLD_INTERACTION_OBJECTS,
   type WorldCircleCollider,
   type WorldRectangleCollider,
 } from '@city/game-protocol';
@@ -113,6 +114,23 @@ export function renderCentralSquare(scene: Phaser.Scene): void {
   map.fillRoundedRect(452, 290, 58, 9, 3);
   map.fillRoundedRect(289, 290, 9, 45, 3);
   map.fillRoundedRect(502, 115, 9, 45, 3);
+
+  const restBench = WORLD_INTERACTION_OBJECTS[0];
+  const restBenchX = mapX(restBench.x);
+  const restBenchY = mapY(restBench.y);
+  map.lineStyle(3, 0xfacc15, 0.95);
+  map.strokeRoundedRect(restBenchX - 31, restBenchY - 9, 62, 18, 5);
+  scene.add
+    .text(restBenchX, restBenchY + 13, 'REST', {
+      color: '#fef3c7',
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '10px',
+      fontStyle: 'bold',
+      stroke: '#3f2d18',
+      strokeThickness: 3,
+    })
+    .setOrigin(0.5)
+    .setDepth(2);
 
   scene.add
     .text(400, 72, 'CENTRAL SQUARE', {

@@ -26,6 +26,8 @@ const WORLD_ENTITY = {
   name: 'Ayla',
   x: 50,
   y: 50,
+  energy: 90,
+  interaction: null,
 };
 
 describe('protocol schemas', () => {
@@ -84,6 +86,10 @@ describe('protocol schemas', () => {
       worldSnapshotPayloadSchema.safeParse({
         zoneId: WORLD_ZONE_ID,
         selfCharacterId: CHARACTER_ID,
+        clock: {
+          simulatedTime: '2026-01-01T00:00:00.000Z',
+          speed: 60,
+        },
         entities: [WORLD_ENTITY],
       }).success,
     ).toBe(true);
@@ -176,6 +182,10 @@ describe('parseServerMessage', () => {
       createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
         zoneId: WORLD_ZONE_ID,
         selfCharacterId: CHARACTER_ID,
+        clock: {
+          simulatedTime: '2026-01-01T00:00:00.000Z',
+          speed: 60,
+        },
         entities: [WORLD_ENTITY],
       }),
     );
@@ -210,6 +220,10 @@ describe('parseServerMessage', () => {
       createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
         zoneId: WORLD_ZONE_ID,
         selfCharacterId: CHARACTER_ID,
+        clock: {
+          simulatedTime: '2026-01-01T00:00:00.000Z',
+          speed: 60,
+        },
         entities: [{ ...WORLD_ENTITY, x: -1 }],
       }),
     );

@@ -32,6 +32,15 @@ describe('validateEnv CLIENT_ORIGIN', () => {
     ).toThrow(/CLIENT_ORIGIN/);
   });
 
+  it('validates the simulation speed bounds', () => {
+    expect(
+      validateEnv({ ...BASE_ENV, SIMULATION_SPEED: '120' }).SIMULATION_SPEED,
+    ).toBe(120);
+    expect(() => validateEnv({ ...BASE_ENV, SIMULATION_SPEED: '0' })).toThrow(
+      /SIMULATION_SPEED/,
+    );
+  });
+
   it('requires secure session cookies in production', () => {
     expect(() =>
       validateEnv({

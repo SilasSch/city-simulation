@@ -50,8 +50,8 @@ Die Begriffe werden nicht vermischt: Sessions hängen am User, Besitz und
 Auswahl am PlayerProfile, der persistente Weltzustand am Character. Der
 ausgewählte Character wird über einen zusammengesetzten Fremdschlüssel auf
 Datenbankebene gezwungen, demselben Profil zu gehören (ADR 0008).
-`CharacterWorldState` speichert Zone, Position und eine Revisionsnummer
-genau einmal pro Character.
+`CharacterWorldState` speichert Zone, Position, Revision, Energie und eine
+optionale Interaktion genau einmal pro Character.
 
 ## Server-Module (`apps/server/src`)
 
@@ -59,10 +59,11 @@ genau einmal pro Character.
 | ------------- | ---------------------------------------------------------------------------------------------- |
 | `auth`        | Accounts, Argon2id, Sessions, Cookie, Guards, Rate-Limit und Ablauf-Cleanup                    |
 | `character`   | Create/List/Select/GetSelected, Namensdomäne und Besitz                                        |
-| `world`       | Eintritt, Snapshot, persistente serverautoritative Bewegung und Revisionskonflikte             |
+| `world`       | Eintritt, Online-Präsenz, Collider und persistente serverautoritative Bewegung                 |
+| `simulation`  | Persistente Uhr, Energieprojektion und Interaktionszustände                                    |
 | `core`        | Zod-Konfiguration, REST-Origin-/CSRF-Guard, CORS, WebSocket-Origin-Adapter und Security-Header |
 | `health`      | `GET /api/health`, prüft Server und Datenbank                                                  |
-| `realtime`    | Validierter Socket.IO-Transport, Session-Revalidierung, Räume und Broadcasts                   |
+| `realtime`    | Validierter Socket.IO-Transport, Session-Revalidierung, Räume, Broadcasts und Simulationstakt  |
 | `persistence` | Globaler `PrismaService` als einziger DB-Zugang                                                |
 | `shared`      | HTTP-Exception-Filter und `ApplicationError` mit stabilen Fehlercodes                          |
 
@@ -113,8 +114,9 @@ Schichtenregeln:
 ## Netzwerkprotokoll (`libs/game-protocol`)
 
 **Transportstrategie:** Auth und Character-Verwaltung laufen über REST.
-Die Spielwelt nutzt den versionierten Socket.IO-Kanal `protocol`: Eintritt und
-Bewegung sind Commands, Snapshot und Positionsänderung sind Serverevents.
+Die Spielwelt nutzt den versionierten Socket.IO-Kanal `protocol`: Eintritt,
+Bewegung und Interaktion sind Commands; Snapshot, Präsenz, Position, Energie
+und Uhr sind Serverevents.
 Character-CRUD bleibt bewusst außerhalb des Echtzeitprotokolls. Sämtliche
 Requests, Commands und Events werden an beiden Netzwerkgrenzen mit den
 gemeinsamen Zod-Schemas validiert.
@@ -136,29 +138,36 @@ Der erste erstellte Character eines Profils wird in derselben Transaktion
 automatisch ausgewählt (ADR 0009); die Auswahl überlebt Server-Neustarts
 (persistierte `selectedCharacterId`).
 
-## Minimaler World-Slice (ADR 0010)
+## Central Square und Simulationsloop (ADR 0010 und 0011)
 
-- Es gibt exakt eine statische Zone: `central-square`.
-- Ein `world-enter` erfordert einen aktuell ausgewählten Character. Beim
-  ersten Eintritt wird er bei (50, 50) angelegt; Wiedereintritt und Reconnect
-  behalten die persistierte Position.
-- Der Snapshot enthält die eigene Character-ID und alle gespeicherten Entities
-  der Zone.
-- `world-move` enthält nur `N`, `E`, `S` oder `W`. Der Server bewegt in
-  Fünferschritten, begrenzt Koordinaten auf 0–100, persistiert und broadcastet
-  erst danach `world-position-changed` in den Zonenraum.
-- Eine Revisionsnummer mit Compare-and-Update serialisiert konkurrierende
-  Bewegungen. Nach einem Character-Wechsel ist der alte Eintrittskontext
-  ungültig und muss neu aufgebaut werden.
-- Der Client führt keine optimistische Positionsänderung aus. Er leert stale
-  State bei Verbindungs-/Auswahlwechseln, fordert einen neuen Snapshot an und
-  projiziert ausschließlich bestätigte Serverevents in Angular und Phaser.
+- `central-square` verwendet ein gemeinsames logisches Koordinatensystem
+  (0–100), Spawn (50, 70), Schrittweite 5 und code-native Collider für vier
+  Gebäude und den Brunnen. Client und Server importieren dieselben Geometriedaten;
+  allein der Server entscheidet, ob ein Ziel begehbar ist.
+- Ungültig gewordene persistierte Positionen werden beim Eintritt zum Spawn
+  repariert. Compare-and-Update über die Revision serialisiert konkurrierende
+  Bewegungen; blockierte Bewegung schreibt nichts.
+- Der Snapshot enthält nur aktuell präsente Characters. Der erste Socket eines
+  Characters erzeugt `world-entity-joined`, der letzte
+  `world-entity-left`; mehrere Tabs bleiben als eine Entity sichtbar.
+- Die Simulationsuhr persistiert einen Anker aus simulierter Zeit, Realzeit und
+  Geschwindigkeit. Nach Neustart wird die verstrichene Realzeit abgeleitet; ein
+  geänderter `SIMULATION_SPEED` setzt einen neuen kontinuierlichen Anker.
+- Energie fällt um 5 Punkte pro Simulationsstunde und bleibt in 0–100. Sie wird
+  aus persistiertem Basiswert plus Zeit abgeleitet und bei relevanten Mutationen
+  materialisiert.
+- `world-interact` startet an der südlichen Bank eine exklusive,
+  entfernungsgeprüfte Rast-Interaktion. Abschluss gibt 30 Energie; Bewegung,
+  letzter Disconnect und Kontextverlust brechen sie ab. Tick-Events projizieren
+  Uhr, Energie und Fortschritt auf alle Clients.
+- Angular und Phaser mutieren Weltzustand nicht optimistisch. Sie rendern
+  Snapshots sowie bestätigte Join-/Leave-/Move-/Update-/Clock-Events.
 
 WebSocket-Nachrichten laufen über **einen** Socket.IO-Kanal (`protocol`) mit
 einheitlicher, versionierter Hülle:
 
 ```typescript
-{ version: 1, type: 'connect', requestId?: '<uuid>', timestamp: '<iso>', payload: { … } }
+{ version: 3, type: 'connect', requestId?: '<uuid>', timestamp: '<iso>', payload: { … } }
 ```
 
 - `PROTOCOL_VERSION` ist zentral in `game-protocol` definiert; Client und
@@ -177,10 +186,15 @@ Aktuelle Nachrichten:
 | ------------- | ------------------------ | ---------------------------------------------- |
 | Client→Server | `connect`                | Technische Verbindung initialisieren           |
 | Server→Client | `connection-established` | Verbindung mit ID bestätigen                   |
-| Client→Server | `world-enter`            | Statische Zone betreten                        |
-| Server→Client | `world-snapshot`         | Vollständige bestätigte Zonenprojektion        |
+| Client→Server | `world-enter`            | Zone betreten                                  |
+| Server→Client | `world-snapshot`         | Präsenz, eigene ID und Uhr initialisieren      |
 | Client→Server | `world-move`             | Validierte Bewegungsrichtung anfordern         |
-| Server→Client | `world-position-changed` | Persistierte Entity-Position broadcasten       |
+| Client→Server | `world-interact`         | Bank-Interaktion starten                       |
+| Server→Client | `world-position-changed` | Persistierte Position broadcasten              |
+| Server→Client | `world-entity-joined`    | Online-Entity hinzufügen                       |
+| Server→Client | `world-entity-left`      | Offline-Entity entfernen                       |
+| Server→Client | `world-entity-updated`   | Energie/Interaktion aktualisieren              |
+| Server→Client | `simulation-clock`       | Simulationszeit synchronisieren                |
 | Server→Client | `protocol-error`         | Technischen oder fachlichen Fehler übermitteln |
 
 Fehlercodes (stabil, maschinenlesbar; REST und WS konsistent):
@@ -191,7 +205,9 @@ Fehlercodes (stabil, maschinenlesbar; REST und WS konsistent):
   `RATE_LIMITED`, `SESSION_EXPIRED`, `ORIGIN_NOT_ALLOWED`,
   `EMAIL_ALREADY_TAKEN`
 - Character/World: `CHARACTER_NAME_INVALID`, `CHARACTER_NOT_FOUND`,
-  `CHARACTER_NOT_OWNED`, `NO_CHARACTER_SELECTED`, `WORLD_NOT_ENTERED`
+  `CHARACTER_NOT_OWNED`, `NO_CHARACTER_SELECTED`, `WORLD_NOT_ENTERED`,
+  `WORLD_MOVE_BLOCKED`, `INTERACTION_OBJECT_NOT_FOUND`,
+  `INTERACTION_OUT_OF_RANGE`, `INTERACTION_ALREADY_ACTIVE`
 
 ## Client (`apps/client`)
 
@@ -203,9 +219,9 @@ Fehlercodes (stabil, maschinenlesbar; REST und WS konsistent):
   authentifiziert und räumt bei Logout Character- und Verbindungszustand auf.
 - `RealtimeService` ist der einzige Socket-Zugang. Er sendet ausschließlich
   validierte Commands und veröffentlicht ausschließlich validierte Events.
-- `WorldStateService` projiziert Snapshot und Positionsevents als Signals.
-  Eine neue Connection-ID oder Character-Auswahl leert stale State und sendet
-  erneut `world-enter`. `move()` verändert lokal keine Koordinate.
+- `WorldStateService` projiziert Snapshot, Präsenz, Position, Uhr, Energie und
+  Interaktion als Signals. Eine neue Connection-ID oder Character-Auswahl leert
+  stale State und sendet erneut `world-enter`; Commands mutieren lokal nichts.
 - `GameHostComponent` kapselt Phaser außerhalb der Angular-Zone.
   `GameEngineService` zeichnet Central Square und Entity-Marker, bildet
   WASD/Pfeiltasten auf Richtungs-Commands ab und ignoriert Key-Repeat.

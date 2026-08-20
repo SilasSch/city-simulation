@@ -45,6 +45,7 @@ describe('WorldStateService', () => {
     connectionId: typeof connectionId;
     serverMessages: Subject<ParsedServerMessage>;
     sendWorldEnter: ReturnType<typeof vi.fn>;
+    sendWorldInteract: ReturnType<typeof vi.fn>;
     sendWorldMove: ReturnType<typeof vi.fn>;
   };
   let world: WorldStateService;
@@ -57,6 +58,7 @@ describe('WorldStateService', () => {
       connectionId,
       serverMessages,
       sendWorldEnter: vi.fn(),
+      sendWorldInteract: vi.fn(),
       sendWorldMove: vi.fn(),
     };
 
@@ -97,12 +99,18 @@ describe('WorldStateService', () => {
         createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
           zoneId: WORLD_ZONE_ID,
           selfCharacterId: CHARACTER_A.id,
+          clock: {
+            simulatedTime: '2026-01-01T00:00:00.000Z',
+            speed: 60,
+          },
           entities: [
             {
               characterId: CHARACTER_A.id,
               name: CHARACTER_A.name,
               x: 50,
               y: 50,
+              energy: 90,
+              interaction: null,
             },
           ],
         }),
@@ -122,6 +130,8 @@ describe('WorldStateService', () => {
             name: CHARACTER_A.name,
             x: 55,
             y: 50,
+            energy: 90,
+            interaction: null,
           },
         }),
       ),
@@ -139,12 +149,18 @@ describe('WorldStateService', () => {
         createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
           zoneId: WORLD_ZONE_ID,
           selfCharacterId: CHARACTER_A.id,
+          clock: {
+            simulatedTime: '2026-01-01T00:00:00.000Z',
+            speed: 60,
+          },
           entities: [
             {
               characterId: CHARACTER_A.id,
               name: CHARACTER_A.name,
               x: 50,
               y: 50,
+              energy: 90,
+              interaction: null,
             },
           ],
         }),
@@ -160,12 +176,18 @@ describe('WorldStateService', () => {
         createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
           zoneId: WORLD_ZONE_ID,
           selfCharacterId: CHARACTER_A.id,
+          clock: {
+            simulatedTime: '2026-01-01T00:00:00.000Z',
+            speed: 60,
+          },
           entities: [
             {
               characterId: CHARACTER_A.id,
               name: CHARACTER_A.name,
               x: 55,
               y: 50,
+              energy: 90,
+              interaction: null,
             },
           ],
         }),
@@ -187,12 +209,18 @@ describe('WorldStateService', () => {
         createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
           zoneId: WORLD_ZONE_ID,
           selfCharacterId: CHARACTER_A.id,
+          clock: {
+            simulatedTime: '2026-01-01T00:00:00.000Z',
+            speed: 60,
+          },
           entities: [
             {
               characterId: CHARACTER_A.id,
               name: CHARACTER_A.name,
               x: 50,
               y: 70,
+              energy: 90,
+              interaction: null,
             },
           ],
         }),
@@ -207,6 +235,8 @@ describe('WorldStateService', () => {
             name: CHARACTER_B.name,
             x: 40,
             y: 70,
+            energy: 90,
+            interaction: null,
           },
         }),
       ),
@@ -223,6 +253,8 @@ describe('WorldStateService', () => {
             name: CHARACTER_B.name,
             x: 45,
             y: 70,
+            energy: 90,
+            interaction: null,
           },
         }),
       ),

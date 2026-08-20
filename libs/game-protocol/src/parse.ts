@@ -3,9 +3,12 @@ import {
   CONNECT_COMMAND_TYPE,
   PROTOCOL_ERROR_EVENT_TYPE,
   PROTOCOL_VERSION,
+  SIMULATION_CLOCK_EVENT_TYPE,
   WORLD_ENTER_COMMAND_TYPE,
   WORLD_ENTITY_JOINED_EVENT_TYPE,
   WORLD_ENTITY_LEFT_EVENT_TYPE,
+  WORLD_ENTITY_UPDATED_EVENT_TYPE,
+  WORLD_INTERACT_COMMAND_TYPE,
   WORLD_MOVE_COMMAND_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
@@ -13,9 +16,12 @@ import {
   connectionEstablishedPayloadSchema,
   protocolEnvelopeSchema,
   protocolErrorPayloadSchema,
+  simulationClockPayloadSchema,
   worldEnterPayloadSchema,
   worldEntityJoinedPayloadSchema,
   worldEntityLeftPayloadSchema,
+  worldEntityUpdatedPayloadSchema,
+  worldInteractPayloadSchema,
   worldMovePayloadSchema,
   worldPositionChangedPayloadSchema,
   worldSnapshotPayloadSchema,
@@ -26,9 +32,12 @@ import type {
   ProtocolEnvelope,
   ProtocolErrorCode,
   ProtocolErrorPayload,
+  SimulationClockEventPayload,
   WorldEnterPayload,
   WorldEntityJoinedPayload,
   WorldEntityLeftPayload,
+  WorldEntityUpdatedPayload,
+  WorldInteractPayload,
   WorldMovePayload,
   WorldPositionChangedPayload,
   WorldSnapshotPayload,
@@ -50,6 +59,11 @@ export type ParsedMessage =
       kind: typeof WORLD_MOVE_COMMAND_TYPE;
       envelope: ProtocolEnvelope;
       payload: WorldMovePayload;
+    }
+  | {
+      kind: typeof WORLD_INTERACT_COMMAND_TYPE;
+      envelope: ProtocolEnvelope;
+      payload: WorldInteractPayload;
     };
 
 /** Erfolgreich geparstes und vollständig validiertes Serverevent. */
@@ -83,6 +97,16 @@ export type ParsedServerMessage =
       kind: typeof WORLD_ENTITY_LEFT_EVENT_TYPE;
       envelope: ProtocolEnvelope;
       payload: WorldEntityLeftPayload;
+    }
+  | {
+      kind: typeof WORLD_ENTITY_UPDATED_EVENT_TYPE;
+      envelope: ProtocolEnvelope;
+      payload: WorldEntityUpdatedPayload;
+    }
+  | {
+      kind: typeof SIMULATION_CLOCK_EVENT_TYPE;
+      envelope: ProtocolEnvelope;
+      payload: SimulationClockEventPayload;
     };
 
 export interface ParseFailure {
@@ -178,6 +202,20 @@ export function parseIncomingMessage(raw: unknown): ParseResult {
       return {
         ok: true,
         kind: WORLD_MOVE_COMMAND_TYPE,
+        envelope,
+        payload: payloadResult.data,
+      };
+    }
+    case WORLD_INTERACT_COMMAND_TYPE: {
+      const payloadResult = worldInteractPayloadSchema.safeParse(
+        envelope.payload,
+      );
+      if (!payloadResult.success) {
+        return invalidPayload(envelope, 'world-interact command');
+      }
+      return {
+        ok: true,
+        kind: WORLD_INTERACT_COMMAND_TYPE,
         envelope,
         payload: payloadResult.data,
       };
@@ -282,6 +320,34 @@ export function parseServerMessage(raw: unknown): ParseServerResult {
       return {
         ok: true,
         kind: WORLD_ENTITY_LEFT_EVENT_TYPE,
+        envelope,
+        payload: payloadResult.data,
+      };
+    }
+    case WORLD_ENTITY_UPDATED_EVENT_TYPE: {
+      const payloadResult = worldEntityUpdatedPayloadSchema.safeParse(
+        envelope.payload,
+      );
+      if (!payloadResult.success) {
+        return invalidPayload(envelope, 'world-entity-updated event');
+      }
+      return {
+        ok: true,
+        kind: WORLD_ENTITY_UPDATED_EVENT_TYPE,
+        envelope,
+        payload: payloadResult.data,
+      };
+    }
+    case SIMULATION_CLOCK_EVENT_TYPE: {
+      const payloadResult = simulationClockPayloadSchema.safeParse(
+        envelope.payload,
+      );
+      if (!payloadResult.success) {
+        return invalidPayload(envelope, 'simulation-clock event');
+      }
+      return {
+        ok: true,
+        kind: SIMULATION_CLOCK_EVENT_TYPE,
         envelope,
         payload: payloadResult.data,
       };

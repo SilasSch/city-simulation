@@ -48,12 +48,18 @@ describe('RealtimeService server-event routing', () => {
       createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
         zoneId: WORLD_ZONE_ID,
         selfCharacterId: CHARACTER_ID,
+        clock: {
+          simulatedTime: '2026-01-01T00:00:00.000Z',
+          speed: 60,
+        },
         entities: [
           {
             characterId: CHARACTER_ID,
             name: 'Ayla',
             x: 50,
             y: 50,
+            energy: 90,
+            interaction: null,
           },
         ],
       }),

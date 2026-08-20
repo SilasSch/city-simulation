@@ -42,6 +42,8 @@ const envSchema = z
     CLIENT_ORIGIN: clientOriginSchema.default('http://localhost:4200'),
     // Lebensdauer einer Session in Stunden (fester Ablauf, kein Sliding).
     SESSION_TTL_HOURS: z.coerce.number().int().positive().default(24),
+    // Simulationssekunden pro realer Sekunde.
+    SIMULATION_SPEED: z.coerce.number().positive().max(3600).default(60),
     // Secure-Flag des Session-Cookies. Lokal false (HTTP), in Produktion true.
     SESSION_COOKIE_SECURE: z
       .enum(['true', 'false'])

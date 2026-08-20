@@ -80,6 +80,10 @@ class WorldScene extends Phaser.Scene {
       marker.dot.clear();
       marker.dot.fillStyle(isSelf ? 0x38bdf8 : 0xa78bfa, 1);
       marker.dot.fillCircle(position.x, position.y, isSelf ? 8 : 6);
+      if (entity.interaction) {
+        marker.dot.lineStyle(2, 0xfacc15, 0.95);
+        marker.dot.strokeCircle(position.x, position.y, 13);
+      }
       marker.label.setPosition(position.x + 10, position.y - 8);
     }
   }
