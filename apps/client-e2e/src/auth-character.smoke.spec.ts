@@ -42,6 +42,27 @@ test('registers, restores the selected character and websocket, then logs out', 
     expect(selectionResponse.status()).toBe(200);
   };
 
+  const waitForWebSocketEvent = (eventType: string): Promise<void> =>
+    new Promise<void>((resolve) => {
+      page.on('websocket', (ws) => {
+        ws.on('framereceived', (event) => {
+          const raw =
+            typeof event.payload === 'string'
+              ? event.payload
+              : event.payload.toString('utf8');
+          if (!raw.startsWith('42')) return;
+          try {
+            const [channel, message] = JSON.parse(raw.slice(2));
+            if (channel === 'protocol' && message?.type === eventType) {
+              resolve();
+            }
+          } catch {
+            // Nicht-JSON-Frames ignorieren
+          }
+        });
+      });
+    });
+
   await page.goto('/');
 
   await expect(page.getByTestId('email-input')).toBeVisible();
@@ -108,7 +129,9 @@ test('registers, restores the selected character and websocket, then logs out', 
   if (!sessionCookie) throw new Error('Session cookie was not set');
   expect(sessionCookie.httpOnly).toBe(true);
 
+  const worldSnapshot = waitForWebSocketEvent('world-snapshot');
   await page.reload();
+  await worldSnapshot;
 
   await expect(page.getByTestId('session-info')).toContainText(email);
   await expect(page.getByTestId('selected-character')).toContainText(
@@ -116,7 +139,6 @@ test('registers, restores the selected character and websocket, then logs out', 
   );
   await expect(page.getByTestId('ws-state')).toHaveText('Verbunden');
   await expect(page.getByTestId('world-zone')).toContainText('central-square');
-  await expect(page.getByTestId('last-message')).toHaveText('world-snapshot');
 
   const logout = page.waitForResponse(
     (response) =>
