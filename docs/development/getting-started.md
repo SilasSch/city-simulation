@@ -82,6 +82,12 @@ pnpm db:reset            # nur Development: DB leeren und neu migrieren
 Einzelnes Projekt: `pnpm exec nx run server:test`, `pnpm exec nx run client:build` usw.
 Projektgraph: `pnpm exec nx graph`
 
+Dependency-Updates werden über `renovate.json` gesteuert: nicht-breaking
+npm- und GitHub-Actions-Updates werden gruppiert, Major-Updates bleiben
+separat und der Lockfile-Wartungslauf ist wöchentlich. Damit Pull Requests
+entstehen, muss die Renovate GitHub App einmalig für das Repository aktiviert
+werden; die Konfiguration selbst enthält keine Zugangsdaten.
+
 ### Tests und Datenbanken
 
 Es gibt drei getrennte Datenbanknamen:

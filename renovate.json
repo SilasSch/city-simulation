@@ -1,0 +1,32 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "security:minimumReleaseAgeNpm"],
+  "dependencyDashboard": true,
+  "rangeStrategy": "bump",
+  "prConcurrentLimit": 5,
+  "labels": ["dependencies"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 4am on monday"]
+  },
+  "packageRules": [
+    {
+      "description": "Bundle reviewable non-major npm updates",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "npm non-major dependencies"
+    },
+    {
+      "description": "Bundle non-major GitHub Actions updates",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "pinDigest", "digest"],
+      "groupName": "GitHub Actions non-major"
+    },
+    {
+      "description": "Keep every major update in its own PR",
+      "matchUpdateTypes": ["major"],
+      "groupName": null,
+      "addLabels": ["major"]
+    }
+  ]
+}

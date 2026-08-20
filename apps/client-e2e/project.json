@@ -5,9 +5,5 @@
   "sourceRoot": "apps/client-e2e/src",
   "implicitDependencies": ["client", "server"],
   "tags": ["scope:e2e"],
-  "targets": {
-    "lint": {
-      "executor": "@nx/eslint:lint"
-    }
-  }
+  "targets": {}
 }
