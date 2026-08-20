@@ -119,7 +119,7 @@ jobs:
       - name: Read Playwright version
         if: github.event_name != 'pull_request'
         id: playwright-version
-        run: echo "version=$(node -p \"require('@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(node -p 'require("@playwright/test/package.json").version')" >> "$GITHUB_OUTPUT"
 
       - name: Restore Playwright browser cache
         if: github.event_name != 'pull_request'
