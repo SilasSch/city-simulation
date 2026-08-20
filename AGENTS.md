@@ -1,20 +1,33 @@
 # Agent instructions
 
-## Validation policy
+## Ticket-first
 
-This project is still in an early iteration phase. Optimize for short feedback loops.
+- Keine Implementierung ohne vorhandenes GitHub-Issue.
+- Vor Arbeitsbeginn Issue lesen und Scope bestätigen.
+- Für neue oder zusätzlich entdeckte Arbeit zuerst ein eigenes Issue erstellen; nicht still in einen laufenden PR aufnehmen.
+- Ein PR bearbeitet genau ein kohärentes Ticket beziehungsweise einen ausdrücklich zusammengehörenden Ticket-Scope.
+- Keine fremden Refactorings, Dependency-Updates oder Aufräumarbeiten im selben PR.
 
-- Run only the smallest check that covers the files and behavior changed.
-- For documentation or configuration-only changes, do not run application tests.
-- For a localized client or server change, prefer the affected Nx target or a single relevant test file.
-- Add tests only for stable domain rules, security boundaries, or a reproduced regression. Do not build broad regression suites for exploratory UI or gameplay work.
-- Do not run `pnpm test`, `pnpm e2e`, the full `pnpm build`, Docker/Compose stacks, or Playwright browser installation unless the task explicitly requires it or they are necessary to reproduce a failure.
-- Do not repeat repository-wide checks locally after GitHub CI has already covered them.
-- After pushing, rely on GitHub CI for repository-wide validation. Report skipped checks clearly in the pull request.
+## Branches und Pull Requests
 
-Examples:
+- Änderungen immer auf einem eigenen Branch, niemals direkt auf `main`.
+- PR zunächst als Draft öffnen.
+- PR-Beschreibung verlinkt das Issue und verwendet bei vollständiger Umsetzung `Closes #<issue>`.
+- PR beschreibt knapp Scope, manuelle Verifikation und bewusst nicht ausgeführte Checks.
+- Kein Merge, Deployment oder Schließen zusätzlicher Issues ohne ausdrücklichen Auftrag.
 
-- Documentation: inspect the rendered Markdown and optionally run Prettier on the changed files.
-- UI/map work: build the affected client target and perform a short manual check.
-- Server rule: run only the focused unit test for that rule.
-- Multiplayer/gameplay flow: perform a short manual two-browser check unless the issue explicitly requires automation.
+## Test- und Validierungspolitik
+
+- Keine neuen automatisierten Tests, Testdateien, Test-Suites oder zusätzlichen CI-Testpflichten einführen, außer der Nutzer verlangt dies ausdrücklich.
+- Bestehende Tests nicht löschen oder umgehen.
+- Nur den kleinsten bereits vorhandenen Check ausführen, der die Änderung sinnvoll abdeckt.
+- Für UI- und Gameplay-Arbeit kurze manuelle Verifikation bevorzugen.
+- Keine vollständigen Test-, E2E-, Docker- oder Playwright-Läufe, sofern das Issue sie nicht ausdrücklich verlangt.
+- Nach dem Push die bestehende GitHub-CI verwenden und keine bereits abgedeckten Komplettprüfungen lokal wiederholen.
+
+## Scope und Kommunikation
+
+- Bei Blockern stoppen und den konkreten Blocker melden, statt den Scope eigenmächtig zu erweitern.
+- Keine produktiven Server-, Datenbank- oder Deployment-Änderungen aus einem normalen Feature-/Bug-Ticket heraus.
+- Arbeitsbaum vor Commit und Push auf fremde Änderungen prüfen.
+- Im Abschlussbericht Issue, Branch, Commit, PR, ausgeführte manuelle Prüfung und CI-Status nennen.
