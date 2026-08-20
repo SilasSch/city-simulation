@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CharacterDto } from '@city/shared-types';
 import {
   CONNECTION_ESTABLISHED_EVENT_TYPE,
+  WORLD_ENTITY_JOINED_EVENT_TYPE,
+  WORLD_ENTITY_LEFT_EVENT_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
   WORLD_ZONE_ID,
@@ -43,6 +45,7 @@ describe('WorldStateService', () => {
     connectionId: typeof connectionId;
     serverMessages: Subject<ParsedServerMessage>;
     sendWorldEnter: ReturnType<typeof vi.fn>;
+    sendWorldInteract: ReturnType<typeof vi.fn>;
     sendWorldMove: ReturnType<typeof vi.fn>;
   };
   let world: WorldStateService;
@@ -55,6 +58,7 @@ describe('WorldStateService', () => {
       connectionId,
       serverMessages,
       sendWorldEnter: vi.fn(),
+      sendWorldInteract: vi.fn(),
       sendWorldMove: vi.fn(),
     };
 
@@ -95,12 +99,18 @@ describe('WorldStateService', () => {
         createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
           zoneId: WORLD_ZONE_ID,
           selfCharacterId: CHARACTER_A.id,
+          clock: {
+            simulatedTime: '2026-01-01T00:00:00.000Z',
+            speed: 60,
+          },
           entities: [
             {
               characterId: CHARACTER_A.id,
               name: CHARACTER_A.name,
               x: 50,
               y: 50,
+              energy: 90,
+              interaction: null,
             },
           ],
         }),
@@ -120,6 +130,8 @@ describe('WorldStateService', () => {
             name: CHARACTER_A.name,
             x: 55,
             y: 50,
+            energy: 90,
+            interaction: null,
           },
         }),
       ),
@@ -137,12 +149,18 @@ describe('WorldStateService', () => {
         createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
           zoneId: WORLD_ZONE_ID,
           selfCharacterId: CHARACTER_A.id,
+          clock: {
+            simulatedTime: '2026-01-01T00:00:00.000Z',
+            speed: 60,
+          },
           entities: [
             {
               characterId: CHARACTER_A.id,
               name: CHARACTER_A.name,
               x: 50,
               y: 50,
+              energy: 90,
+              interaction: null,
             },
           ],
         }),
@@ -158,12 +176,18 @@ describe('WorldStateService', () => {
         createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
           zoneId: WORLD_ZONE_ID,
           selfCharacterId: CHARACTER_A.id,
+          clock: {
+            simulatedTime: '2026-01-01T00:00:00.000Z',
+            speed: 60,
+          },
           entities: [
             {
               characterId: CHARACTER_A.id,
               name: CHARACTER_A.name,
               x: 55,
               y: 50,
+              energy: 90,
+              interaction: null,
             },
           ],
         }),
@@ -174,6 +198,80 @@ describe('WorldStateService', () => {
     connectionId.set(null);
     TestBed.flushEffects();
     expect(world.entities()).toEqual([]);
+  });
+
+  it('adds joined players, updates them, and removes them on leave', () => {
+    selected.set(CHARACTER_A);
+    connectionId.set(CONNECTION_A);
+    TestBed.flushEffects();
+    serverMessages.next(
+      parsedEvent(
+        createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
+          zoneId: WORLD_ZONE_ID,
+          selfCharacterId: CHARACTER_A.id,
+          clock: {
+            simulatedTime: '2026-01-01T00:00:00.000Z',
+            speed: 60,
+          },
+          entities: [
+            {
+              characterId: CHARACTER_A.id,
+              name: CHARACTER_A.name,
+              x: 50,
+              y: 70,
+              energy: 90,
+              interaction: null,
+            },
+          ],
+        }),
+      ),
+    );
+
+    serverMessages.next(
+      parsedEvent(
+        createMessage(WORLD_ENTITY_JOINED_EVENT_TYPE, {
+          entity: {
+            characterId: CHARACTER_B.id,
+            name: CHARACTER_B.name,
+            x: 40,
+            y: 70,
+            energy: 90,
+            interaction: null,
+          },
+        }),
+      ),
+    );
+    expect(world.entities().map((entity) => entity.characterId)).toContain(
+      CHARACTER_B.id,
+    );
+
+    serverMessages.next(
+      parsedEvent(
+        createMessage(WORLD_POSITION_CHANGED_EVENT_TYPE, {
+          entity: {
+            characterId: CHARACTER_B.id,
+            name: CHARACTER_B.name,
+            x: 45,
+            y: 70,
+            energy: 90,
+            interaction: null,
+          },
+        }),
+      ),
+    );
+    expect(
+      world.entities().find((entity) => entity.characterId === CHARACTER_B.id)
+        ?.x,
+    ).toBe(45);
+
+    serverMessages.next(
+      parsedEvent(
+        createMessage(WORLD_ENTITY_LEFT_EVENT_TYPE, {
+          characterId: CHARACTER_B.id,
+        }),
+      ),
+    );
+    expect(world.entities()).toHaveLength(1);
   });
 
   it('ignores movement before the selected character has entered the world', () => {

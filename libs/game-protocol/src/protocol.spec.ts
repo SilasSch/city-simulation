@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CONNECT_COMMAND_TYPE,
   PROTOCOL_VERSION,
+  WORLD_ENTITY_JOINED_EVENT_TYPE,
+  WORLD_ENTITY_LEFT_EVENT_TYPE,
   WORLD_COORDINATE_MAX,
   WORLD_ENTER_COMMAND_TYPE,
   WORLD_MOVE_COMMAND_TYPE,
@@ -11,6 +13,7 @@ import {
   connectionEstablishedPayloadSchema,
   connectPayloadSchema,
   createMessage,
+  isWorldPositionWalkable,
   protocolEnvelopeSchema,
   worldEntitySchema,
   worldSnapshotPayloadSchema,
@@ -23,6 +26,8 @@ const WORLD_ENTITY = {
   name: 'Ayla',
   x: 50,
   y: 50,
+  energy: 90,
+  interaction: null,
 };
 
 describe('protocol schemas', () => {
@@ -69,11 +74,22 @@ describe('protocol schemas', () => {
     ).toBe(false);
   });
 
+  it('shares deterministic world bounds and obstacle rules', () => {
+    expect(isWorldPositionWalkable(50, 70)).toBe(true);
+    expect(isWorldPositionWalkable(-5, 50)).toBe(false);
+    expect(isWorldPositionWalkable(25, 10)).toBe(false);
+    expect(isWorldPositionWalkable(50, 50)).toBe(false);
+  });
+
   it('validates complete world snapshots', () => {
     expect(
       worldSnapshotPayloadSchema.safeParse({
         zoneId: WORLD_ZONE_ID,
         selfCharacterId: CHARACTER_ID,
+        clock: {
+          simulatedTime: '2026-01-01T00:00:00.000Z',
+          speed: 60,
+        },
         entities: [WORLD_ENTITY],
       }).success,
     ).toBe(true);
@@ -166,6 +182,10 @@ describe('parseServerMessage', () => {
       createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
         zoneId: WORLD_ZONE_ID,
         selfCharacterId: CHARACTER_ID,
+        clock: {
+          simulatedTime: '2026-01-01T00:00:00.000Z',
+          speed: 60,
+        },
         entities: [WORLD_ENTITY],
       }),
     );
@@ -181,11 +201,29 @@ describe('parseServerMessage', () => {
     );
   });
 
+  it('parses presence join and leave events', () => {
+    const joined = parseServerMessage(
+      createMessage(WORLD_ENTITY_JOINED_EVENT_TYPE, { entity: WORLD_ENTITY }),
+    );
+    const left = parseServerMessage(
+      createMessage(WORLD_ENTITY_LEFT_EVENT_TYPE, {
+        characterId: CHARACTER_ID,
+      }),
+    );
+
+    expect(joined.ok && joined.kind).toBe(WORLD_ENTITY_JOINED_EVENT_TYPE);
+    expect(left.ok && left.kind).toBe(WORLD_ENTITY_LEFT_EVENT_TYPE);
+  });
+
   it('rejects malformed and unknown server events', () => {
     const malformed = parseServerMessage(
       createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
         zoneId: WORLD_ZONE_ID,
         selfCharacterId: CHARACTER_ID,
+        clock: {
+          simulatedTime: '2026-01-01T00:00:00.000Z',
+          speed: 60,
+        },
         entities: [{ ...WORLD_ENTITY, x: -1 }],
       }),
     );

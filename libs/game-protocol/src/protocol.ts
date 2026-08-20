@@ -5,7 +5,7 @@ import type { HealthResponseDto } from '@city/shared-types';
  * Aktuelle Protokollversion. Zentral definiert — Client und Server
  * MÜSSEN dieselbe Version verwenden. Bei Erhöhung ist ADR 0006 zu beachten.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 3;
 
 /**
  * Stabile maschinenlesbare Fehlercodes für ProtocolErrorEvent.
@@ -30,6 +30,10 @@ export const PROTOCOL_ERROR_CODES = [
   'CHARACTER_NOT_OWNED',
   'NO_CHARACTER_SELECTED',
   'WORLD_NOT_ENTERED',
+  'WORLD_MOVE_BLOCKED',
+  'INTERACTION_OBJECT_NOT_FOUND',
+  'INTERACTION_OUT_OF_RANGE',
+  'INTERACTION_ALREADY_ACTIVE',
 ] as const;
 
 export const protocolErrorCodeSchema = z.enum(PROTOCOL_ERROR_CODES);
@@ -62,8 +66,117 @@ export type ConnectPayload = z.infer<typeof connectPayloadSchema>;
 export const WORLD_ZONE_ID = 'central-square' as const;
 export const WORLD_COORDINATE_MIN = 0;
 export const WORLD_COORDINATE_MAX = 100;
-export const WORLD_SPAWN_COORDINATE = 50;
 export const WORLD_MOVE_STEP = 5;
+
+export const WORLD_SPAWN_POSITION = { x: 50, y: 70 } as const;
+
+export interface WorldRectangleCollider {
+  readonly id: string;
+  readonly kind: 'rectangle';
+  readonly minX: number;
+  readonly minY: number;
+  readonly maxX: number;
+  readonly maxY: number;
+}
+
+export interface WorldCircleCollider {
+  readonly id: string;
+  readonly kind: 'circle';
+  readonly x: number;
+  readonly y: number;
+  readonly radius: number;
+}
+
+export type WorldCollider = WorldRectangleCollider | WorldCircleCollider;
+
+/**
+ * Gemeinsames, code-natives Kollisionsmodell der Central-Square-Karte.
+ * Client und Server projizieren dieselben logischen Koordinaten; der Server
+ * bleibt die Autorität darüber, ob eine Position begehbar ist.
+ */
+export const CENTRAL_SQUARE_COLLIDERS: readonly WorldCollider[] = [
+  {
+    id: 'building-north-west',
+    kind: 'rectangle',
+    minX: 0,
+    minY: 0,
+    maxX: 25,
+    maxY: 20,
+  },
+  {
+    id: 'building-north-east',
+    kind: 'rectangle',
+    minX: 75,
+    minY: 0,
+    maxX: 100,
+    maxY: 20,
+  },
+  {
+    id: 'building-south-west',
+    kind: 'rectangle',
+    minX: 0,
+    minY: 80,
+    maxX: 25,
+    maxY: 100,
+  },
+  {
+    id: 'building-south-east',
+    kind: 'rectangle',
+    minX: 75,
+    minY: 80,
+    maxX: 100,
+    maxY: 100,
+  },
+  {
+    id: 'central-fountain',
+    kind: 'circle',
+    x: 50,
+    y: 50,
+    radius: 8,
+  },
+] as const;
+
+export const WORLD_INTERACTION_OBJECTS = [
+  {
+    id: 'bench-south',
+    kind: 'bench',
+    x: 62,
+    y: 70,
+    interactionRange: 10,
+    durationSimulationSeconds: 300,
+    energyGain: 30,
+  },
+] as const;
+export type WorldInteractionObject = (typeof WORLD_INTERACTION_OBJECTS)[number];
+export type WorldInteractionObjectId = WorldInteractionObject['id'];
+
+export function isWorldPositionWalkable(x: number, y: number): boolean {
+  if (
+    !Number.isInteger(x) ||
+    !Number.isInteger(y) ||
+    x < WORLD_COORDINATE_MIN ||
+    x > WORLD_COORDINATE_MAX ||
+    y < WORLD_COORDINATE_MIN ||
+    y > WORLD_COORDINATE_MAX
+  ) {
+    return false;
+  }
+
+  return CENTRAL_SQUARE_COLLIDERS.every((collider) => {
+    if (collider.kind === 'rectangle') {
+      return !(
+        x >= collider.minX &&
+        x <= collider.maxX &&
+        y >= collider.minY &&
+        y <= collider.maxY
+      );
+    }
+
+    const dx = x - collider.x;
+    const dy = y - collider.y;
+    return dx * dx + dy * dy > collider.radius * collider.radius;
+  });
+}
 
 export const worldZoneIdSchema = z.literal(WORLD_ZONE_ID);
 export type WorldZoneId = z.infer<typeof worldZoneIdSchema>;
@@ -71,11 +184,21 @@ export type WorldZoneId = z.infer<typeof worldZoneIdSchema>;
 export const worldDirectionSchema = z.enum(['N', 'E', 'S', 'W']);
 export type WorldDirection = z.infer<typeof worldDirectionSchema>;
 
+export const worldInteractionStateSchema = z.object({
+  objectId: z.literal('bench-south'),
+  startedAt: z.string().datetime({ offset: true }),
+  endsAt: z.string().datetime({ offset: true }),
+  progress: z.number().min(0).max(1),
+});
+export type WorldInteractionState = z.infer<typeof worldInteractionStateSchema>;
+
 export const worldEntitySchema = z.object({
   characterId: z.string().uuid(),
   name: z.string().min(1).max(32),
   x: z.number().int().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
   y: z.number().int().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
+  energy: z.number().min(0).max(100),
+  interaction: worldInteractionStateSchema.nullable(),
 });
 export type WorldEntity = z.infer<typeof worldEntitySchema>;
 
@@ -91,6 +214,12 @@ export const worldMovePayloadSchema = z.object({
 });
 export type WorldMovePayload = z.infer<typeof worldMovePayloadSchema>;
 
+export const WORLD_INTERACT_COMMAND_TYPE = 'world-interact';
+export const worldInteractPayloadSchema = z.object({
+  objectId: z.literal('bench-south'),
+});
+export type WorldInteractPayload = z.infer<typeof worldInteractPayloadSchema>;
+
 // --- Events (Server -> Client): Zustandsänderung ist bereits erfolgt ---
 
 export const CONNECTION_ESTABLISHED_EVENT_TYPE = 'connection-established';
@@ -104,10 +233,19 @@ export type ConnectionEstablishedPayload = z.infer<
   typeof connectionEstablishedPayloadSchema
 >;
 
+export const simulationClockPayloadSchema = z.object({
+  simulatedTime: z.string().datetime({ offset: true }),
+  speed: z.number().positive(),
+});
+export type SimulationClockPayload = z.infer<
+  typeof simulationClockPayloadSchema
+>;
+
 export const WORLD_SNAPSHOT_EVENT_TYPE = 'world-snapshot';
 export const worldSnapshotPayloadSchema = z.object({
   zoneId: worldZoneIdSchema,
   selfCharacterId: z.string().uuid(),
+  clock: simulationClockPayloadSchema,
   entities: z.array(worldEntitySchema),
 });
 export type WorldSnapshotPayload = z.infer<typeof worldSnapshotPayloadSchema>;
@@ -119,6 +257,33 @@ export const worldPositionChangedPayloadSchema = z.object({
 export type WorldPositionChangedPayload = z.infer<
   typeof worldPositionChangedPayloadSchema
 >;
+
+export const WORLD_ENTITY_JOINED_EVENT_TYPE = 'world-entity-joined';
+export const worldEntityJoinedPayloadSchema = z.object({
+  entity: worldEntitySchema,
+});
+export type WorldEntityJoinedPayload = z.infer<
+  typeof worldEntityJoinedPayloadSchema
+>;
+
+export const WORLD_ENTITY_LEFT_EVENT_TYPE = 'world-entity-left';
+export const worldEntityLeftPayloadSchema = z.object({
+  characterId: z.string().uuid(),
+});
+export type WorldEntityLeftPayload = z.infer<
+  typeof worldEntityLeftPayloadSchema
+>;
+
+export const WORLD_ENTITY_UPDATED_EVENT_TYPE = 'world-entity-updated';
+export const worldEntityUpdatedPayloadSchema = z.object({
+  entity: worldEntitySchema,
+});
+export type WorldEntityUpdatedPayload = z.infer<
+  typeof worldEntityUpdatedPayloadSchema
+>;
+
+export const SIMULATION_CLOCK_EVENT_TYPE = 'simulation-clock';
+export type SimulationClockEventPayload = SimulationClockPayload;
 
 // --- Error Events (Server -> Client): Nachricht wurde abgelehnt ---
 

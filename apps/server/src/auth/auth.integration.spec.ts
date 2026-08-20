@@ -46,7 +46,7 @@ describe('Auth (integration)', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-    rateLimiter.clear();
+    await rateLimiter.clear();
     await cleanDatabase(prisma);
   });
 
@@ -265,7 +265,7 @@ describe('Auth (integration)', () => {
 
     for (
       let attempt = 0;
-      attempt <= AUTH_RATE_LIMIT_POLICIES.login.maxRequests;
+      attempt <= AUTH_RATE_LIMIT_POLICIES.loginIdentity.maxRequests;
       attempt += 1
     ) {
       response = await request(app.getHttpServer())
@@ -277,7 +277,7 @@ describe('Auth (integration)', () => {
     expect(response?.status).toBe(429);
     expect(response?.body.code).toBe('RATE_LIMITED');
     expect(verifyLoginPassword).toHaveBeenCalledTimes(
-      AUTH_RATE_LIMIT_POLICIES.login.maxRequests,
+      AUTH_RATE_LIMIT_POLICIES.loginIdentity.maxRequests,
     );
   });
 
@@ -287,7 +287,7 @@ describe('Auth (integration)', () => {
 
     for (
       let attempt = 0;
-      attempt <= AUTH_RATE_LIMIT_POLICIES.register.maxRequests;
+      attempt <= AUTH_RATE_LIMIT_POLICIES.registerIp.maxRequests;
       attempt += 1
     ) {
       response = await registerUser(
@@ -299,17 +299,17 @@ describe('Auth (integration)', () => {
     expect(response?.status).toBe(429);
     expect(response?.body.code).toBe('RATE_LIMITED');
     expect(hash).toHaveBeenCalledTimes(
-      AUTH_RATE_LIMIT_POLICIES.register.maxRequests,
+      AUTH_RATE_LIMIT_POLICIES.registerIp.maxRequests,
     );
     expect(await prisma.user.count()).toBe(
-      AUTH_RATE_LIMIT_POLICIES.register.maxRequests,
+      AUTH_RATE_LIMIT_POLICIES.registerIp.maxRequests,
     );
   });
 
   it('keeps the registration limit independent from login', async () => {
     for (
       let attempt = 0;
-      attempt < AUTH_RATE_LIMIT_POLICIES.login.maxRequests;
+      attempt < AUTH_RATE_LIMIT_POLICIES.loginIdentity.maxRequests;
       attempt += 1
     ) {
       await request(app.getHttpServer())

@@ -7,6 +7,6 @@ import type { PrismaService } from '../src/persistence/prisma.service';
  */
 export async function cleanDatabase(prisma: PrismaService): Promise<void> {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "Character", "Session", "PlayerProfile", "User" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "AuthRateLimitBucket", "Character", "Session", "PlayerProfile", "User" RESTART IDENTITY CASCADE',
   );
 }

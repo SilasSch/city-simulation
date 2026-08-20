@@ -32,6 +32,15 @@ describe('validateEnv CLIENT_ORIGIN', () => {
     ).toThrow(/CLIENT_ORIGIN/);
   });
 
+  it('validates the simulation speed bounds', () => {
+    expect(
+      validateEnv({ ...BASE_ENV, SIMULATION_SPEED: '120' }).SIMULATION_SPEED,
+    ).toBe(120);
+    expect(() => validateEnv({ ...BASE_ENV, SIMULATION_SPEED: '0' })).toThrow(
+      /SIMULATION_SPEED/,
+    );
+  });
+
   it('requires secure session cookies in production', () => {
     expect(() =>
       validateEnv({
@@ -39,6 +48,7 @@ describe('validateEnv CLIENT_ORIGIN', () => {
         NODE_ENV: 'production',
         CLIENT_ORIGIN: 'https://city.example',
         SESSION_COOKIE_SECURE: 'false',
+        TRUST_PROXY_HOPS: '1',
       }),
     ).toThrow(/SESSION_COOKIE_SECURE/);
 
@@ -48,8 +58,30 @@ describe('validateEnv CLIENT_ORIGIN', () => {
         NODE_ENV: 'production',
         CLIENT_ORIGIN: 'https://city.example',
         SESSION_COOKIE_SECURE: 'true',
+        TRUST_PROXY_HOPS: '1',
       }).SESSION_COOKIE_SECURE,
     ).toBe(true);
+  });
+
+  it('requires an explicit trusted-proxy boundary in production', () => {
+    expect(() =>
+      validateEnv({
+        ...BASE_ENV,
+        NODE_ENV: 'production',
+        CLIENT_ORIGIN: 'https://city.example',
+        SESSION_COOKIE_SECURE: 'true',
+      }),
+    ).toThrow(/TRUST_PROXY_HOPS/);
+
+    expect(
+      validateEnv({
+        ...BASE_ENV,
+        NODE_ENV: 'production',
+        CLIENT_ORIGIN: 'https://city.example',
+        SESSION_COOKIE_SECURE: 'true',
+        TRUST_PROXY_HOPS: '1',
+      }).TRUST_PROXY_HOPS,
+    ).toBe(1);
   });
 
   it('requires an explicit client origin in production', () => {
@@ -58,6 +90,7 @@ describe('validateEnv CLIENT_ORIGIN', () => {
         ...BASE_ENV,
         NODE_ENV: 'production',
         SESSION_COOKIE_SECURE: 'true',
+        TRUST_PROXY_HOPS: '1',
       }),
     ).toThrow(/CLIENT_ORIGIN/);
   });

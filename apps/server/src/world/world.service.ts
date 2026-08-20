@@ -1,18 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
-  WORLD_COORDINATE_MAX,
-  WORLD_COORDINATE_MIN,
   WORLD_MOVE_STEP,
-  WORLD_SPAWN_COORDINATE,
+  WORLD_SPAWN_POSITION,
   WORLD_ZONE_ID,
+  isWorldPositionWalkable,
   type WorldDirection,
   type WorldEntity,
+  type WorldInteractionObjectId,
   type WorldSnapshotPayload,
   type WorldZoneId,
 } from '@city/game-protocol';
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal';
 import { PrismaService } from '../persistence/prisma.service';
 import { ApplicationError } from '../shared/application-error';
+import { SimulationService } from '../simulation/simulation.service';
 import type { EnteredWorldContext } from './world.constants';
 import { WorldRepository } from './world.repository';
 
@@ -23,10 +24,6 @@ export interface WorldEntry {
 
 const MAX_MOVE_RETRIES = 8;
 
-function clampCoordinate(value: number): number {
-  return Math.min(WORLD_COORDINATE_MAX, Math.max(WORLD_COORDINATE_MIN, value));
-}
-
 function nextPosition(
   x: number,
   y: number,
@@ -34,13 +31,13 @@ function nextPosition(
 ): { x: number; y: number } {
   switch (direction) {
     case 'N':
-      return { x, y: clampCoordinate(y - WORLD_MOVE_STEP) };
+      return { x, y: y - WORLD_MOVE_STEP };
     case 'E':
-      return { x: clampCoordinate(x + WORLD_MOVE_STEP), y };
+      return { x: x + WORLD_MOVE_STEP, y };
     case 'S':
-      return { x, y: clampCoordinate(y + WORLD_MOVE_STEP) };
+      return { x, y: y + WORLD_MOVE_STEP };
     case 'W':
-      return { x: clampCoordinate(x - WORLD_MOVE_STEP), y };
+      return { x: x - WORLD_MOVE_STEP, y };
   }
 }
 
@@ -52,6 +49,7 @@ export class WorldService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly worlds: WorldRepository,
+    private readonly simulation: SimulationService,
   ) {}
 
   async enter(
@@ -64,7 +62,10 @@ export class WorldService {
       throw new ApplicationError('VALIDATION_ERROR', 400, 'Unknown world zone');
     }
 
-    const entry = await this.prisma.$transaction(async (tx) => {
+    const simulatedNow = new Date(
+      this.simulation.clockSnapshot().simulatedTime,
+    );
+    const context = await this.prisma.$transaction(async (tx) => {
       const selected = await this.worlds.findSelectedCharacter(
         principal.playerProfileId,
         tx,
@@ -77,24 +78,65 @@ export class WorldService {
         );
       }
 
-      await this.worlds.enter(selected.id, zoneId, WORLD_SPAWN_COORDINATE, tx);
-      const entities = await this.worlds.findEntitiesInZone(zoneId, tx);
-      return {
-        context: { characterId: selected.id, zoneId },
-        snapshot: {
-          zoneId,
-          selfCharacterId: selected.id,
-          entities,
-        },
-      } satisfies WorldEntry;
+      const state = await this.worlds.enter(
+        selected.id,
+        zoneId,
+        WORLD_SPAWN_POSITION.x,
+        WORLD_SPAWN_POSITION.y,
+        simulatedNow,
+        tx,
+      );
+      if (!isWorldPositionWalkable(state.x, state.y)) {
+        await this.worlds.relocate(
+          selected.id,
+          WORLD_SPAWN_POSITION.x,
+          WORLD_SPAWN_POSITION.y,
+          tx,
+        );
+      }
+      return { characterId: selected.id, zoneId } satisfies EnteredWorldContext;
     });
 
+    const entry: WorldEntry = {
+      context,
+      snapshot: {
+        zoneId,
+        selfCharacterId: context.characterId,
+        clock: this.simulation.clockSnapshot(),
+        entities: await this.simulation.entitiesInZone(zoneId),
+      },
+    };
     this.logger.log({
       event: 'world-entered',
       characterId: entry.context.characterId,
       zoneId,
     });
     return entry;
+  }
+
+  async interact(
+    principal: AuthenticatedPrincipal,
+    context: EnteredWorldContext,
+    objectId: WorldInteractionObjectId,
+  ): Promise<WorldEntity> {
+    const selected = await this.worlds.findSelectedCharacter(
+      principal.playerProfileId,
+      this.prisma,
+    );
+    const state = await this.worlds.findState(context.characterId, this.prisma);
+    if (
+      selected?.id !== context.characterId ||
+      !state ||
+      state.zoneId !== context.zoneId
+    ) {
+      throw new ApplicationError(
+        'WORLD_NOT_ENTERED',
+        409,
+        'Enter the world with the currently selected character first',
+      );
+    }
+
+    return this.simulation.startInteraction(context.characterId, objectId);
   }
 
   async move(
@@ -126,6 +168,13 @@ export class WorldService {
         }
 
         const position = nextPosition(state.x, state.y, direction);
+        if (!isWorldPositionWalkable(position.x, position.y)) {
+          throw new ApplicationError(
+            'WORLD_MOVE_BLOCKED',
+            409,
+            'Movement is blocked by the Central Square map',
+          );
+        }
         const updated = await this.worlds.tryMove(
           context.characterId,
           state.revision,
@@ -137,20 +186,20 @@ export class WorldService {
 
         return {
           characterId: selected.id,
-          name: selected.name,
           ...position,
-        } satisfies WorldEntity;
+        };
       });
 
       if (moved) {
+        const entity = await this.simulation.entity(moved.characterId);
         this.logger.log({
           event: 'world-moved',
-          characterId: moved.characterId,
+          characterId: entity.characterId,
           direction,
-          x: moved.x,
-          y: moved.y,
+          x: entity.x,
+          y: entity.y,
         });
-        return moved;
+        return entity;
       }
     }
 

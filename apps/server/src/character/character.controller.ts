@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -56,6 +57,23 @@ export class CharacterController {
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
   ): Promise<CharacterDto> {
     return this.characters.getSelectedCharacter(principal);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async delete(
+    @Param('id') id: string,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+  ): Promise<void> {
+    const parsedId = characterIdParamSchema.safeParse(id);
+    if (!parsedId.success) {
+      throw new ApplicationError(
+        'VALIDATION_ERROR',
+        400,
+        'Invalid character id',
+      );
+    }
+    await this.characters.deleteCharacter(principal, parsedId.data);
   }
 
   @Post(':id/select')

@@ -45,11 +45,20 @@ const ERROR_MESSAGES: Record<string, string> = {
             } @else {
               <button
                 [attr.data-testid]="'select-' + character.id"
+                [disabled]="busy()"
                 (click)="select(character.id)"
               >
                 Auswählen
               </button>
             }
+            <button
+              type="button"
+              [attr.data-testid]="'delete-' + character.id"
+              [disabled]="busy()"
+              (click)="delete(character.id)"
+            >
+              Löschen
+            </button>
           </li>
         } @empty {
           <li data-testid="empty-list">Noch keine Charaktere angelegt.</li>
@@ -122,6 +131,19 @@ export class CharacterViewComponent implements OnInit {
         this.name.set('');
         this.nameTouched.set(false);
       },
+      error: (error: unknown) => {
+        this.busy.set(false);
+        this.errorMessage.set(this.toMessage(error));
+      },
+    });
+  }
+
+  protected delete(id: string): void {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.errorMessage.set(null);
+    this.characters.delete(id).subscribe({
+      next: () => this.busy.set(false),
       error: (error: unknown) => {
         this.busy.set(false);
         this.errorMessage.set(this.toMessage(error));

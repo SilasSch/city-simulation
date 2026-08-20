@@ -29,7 +29,7 @@ describe('Character (integration)', () => {
   });
 
   beforeEach(async () => {
-    rateLimiter.clear();
+    await rateLimiter.clear();
     await cleanDatabase(prisma);
   });
 
@@ -243,6 +243,71 @@ describe('Character (integration)', () => {
         data: { selectedCharacterId: foreign.id },
       }),
     ).rejects.toThrow();
+  });
+
+  it('deletes an own non-selected character', async () => {
+    const user = await registerAndGetCookie(app, 'delete-own@example.com');
+    const selected = (await createCharacter(user, 'Bleibt'))
+      .body as CharacterDto;
+    const deleted = (await createCharacter(user, 'Geht')).body as CharacterDto;
+
+    const response = await request(app.getHttpServer())
+      .delete(`/api/characters/${deleted.id}`)
+      .set('Origin', CLIENT_ORIGIN)
+      .set('Cookie', user.cookie);
+
+    expect(response.status).toBe(204);
+    expect(
+      await prisma.character.findUnique({ where: { id: deleted.id } }),
+    ).toBeNull();
+    expect(
+      (
+        await prisma.playerProfile.findUniqueOrThrow({
+          where: { id: user.session.playerProfileId },
+        })
+      ).selectedCharacterId,
+    ).toBe(selected.id);
+  });
+
+  it('rejects deleting a character owned by another player', async () => {
+    const owner = await registerAndGetCookie(app, 'delete-owner@example.com');
+    const intruder = await registerAndGetCookie(
+      app,
+      'delete-intruder@example.com',
+    );
+    const foreign = (await createCharacter(owner, 'Fremd'))
+      .body as CharacterDto;
+
+    const response = await request(app.getHttpServer())
+      .delete(`/api/characters/${foreign.id}`)
+      .set('Origin', CLIENT_ORIGIN)
+      .set('Cookie', intruder.cookie);
+
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('CHARACTER_NOT_OWNED');
+    expect(
+      await prisma.character.findUnique({ where: { id: foreign.id } }),
+    ).not.toBeNull();
+  });
+
+  it('clears the selection before deleting the selected character', async () => {
+    const user = await registerAndGetCookie(app, 'delete-selected@example.com');
+    const selected = (await createCharacter(user, 'Ausgewählt'))
+      .body as CharacterDto;
+
+    const response = await request(app.getHttpServer())
+      .delete(`/api/characters/${selected.id}`)
+      .set('Origin', CLIENT_ORIGIN)
+      .set('Cookie', user.cookie);
+
+    expect(response.status).toBe(204);
+    const profile = await prisma.playerProfile.findUniqueOrThrow({
+      where: { id: user.session.playerProfileId },
+    });
+    expect(profile.selectedCharacterId).toBeNull();
+    expect(
+      await prisma.character.findUnique({ where: { id: selected.id } }),
+    ).toBeNull();
   });
 
   it('keeps the selected character across a server restart', async () => {
