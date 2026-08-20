@@ -11,7 +11,7 @@ import {
   CENTRAL_SQUARE_VIEWPORT,
   renderCentralSquare,
 } from './central-square-map';
-import { worldDirectionForKey } from './world-input';
+import { isEditableTarget, worldDirectionForKey } from './world-input';
 
 export interface WorldScenePort {
   readonly entities: () => readonly WorldEntity[];
@@ -51,6 +51,15 @@ class WorldScene extends Phaser.Scene {
   }
 
   private readonly handleKeydown = (event: KeyboardEvent): void => {
+    if (
+      isEditableTarget(
+        event.target,
+        typeof document !== 'undefined' ? document.activeElement : null,
+      )
+    ) {
+      return;
+    }
+
     const direction = worldDirectionForKey(event.key, event.repeat);
     if (!direction || !this.world) return;
 
