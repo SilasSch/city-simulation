@@ -62,6 +62,54 @@ jobs:
         if: github.event_name != 'pull_request' || steps.container-changes.outputs.changed == 'true'
         run: docker compose --env-file .env.production.example -f docker-compose.prod.yml build migrate server client
 
+      # Starts the built production server image against a disposable
+      # PostgreSQL and verifies /api/health. Catches runtime regressions (for
+      # example a pruned production dependency) that a plain image build
+      # cannot detect. Runs once after merge or on manual dispatch, never on
+      # pull requests.
+      - name: Server container smoke test
+        if: github.event_name != 'pull_request'
+        run: |
+          docker network create city-smoke
+          docker run -d --name city-smoke-postgres \
+            --network city-smoke \
+            -e POSTGRES_USER=city \
+            -e POSTGRES_PASSWORD=city \
+            -e POSTGRES_DB=city_simulation \
+            postgres:16-alpine
+          for attempt in {1..20}; do
+            if docker exec city-smoke-postgres pg_isready -U city -d city_simulation; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec city-smoke-postgres pg_isready -U city -d city_simulation
+          docker run --rm --network city-smoke \
+            -e DATABASE_URL=postgresql://city:city@city-smoke-postgres:5432/city_simulation \
+            city-simulation-migrate
+          docker run -d --name city-smoke-server \
+            --network city-smoke \
+            -e NODE_ENV=production \
+            -e SERVER_PORT=3000 \
+            -e DATABASE_URL=postgresql://city:city@city-smoke-postgres:5432/city_simulation \
+            -e CLIENT_ORIGIN=https://city.example.com \
+            -e TRUST_PROXY_HOPS=1 \
+            -e SESSION_COOKIE_SECURE=true \
+            city-simulation-server
+          for attempt in {1..30}; do
+            if docker exec city-smoke-server node -e \
+              "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              docker rm -f city-smoke-server city-smoke-postgres >/dev/null
+              docker network rm city-smoke >/dev/null
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs city-smoke-server
+          docker rm -f city-smoke-server city-smoke-postgres >/dev/null
+          docker network rm city-smoke >/dev/null
+          exit 1
+
   verify:
     runs-on: ubuntu-latest
 
