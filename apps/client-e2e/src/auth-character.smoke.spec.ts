@@ -73,7 +73,7 @@ test('registers, restores the selected character and websocket, then logs out', 
   expect((await initialSelection).status()).toBe(404);
 
   await expect(page.getByTestId('session-info')).toContainText(email);
-  await expect(page.getByTestId('ws-state')).toHaveText('connected');
+  await expect(page.getByTestId('ws-state')).toHaveText('Verbunden');
   await expect(page.getByTestId('last-message')).toHaveText(
     'connection-established',
   );
@@ -114,7 +114,7 @@ test('registers, restores the selected character and websocket, then logs out', 
   await expect(page.getByTestId('selected-character')).toContainText(
     selectedCharacter,
   );
-  await expect(page.getByTestId('ws-state')).toHaveText('connected');
+  await expect(page.getByTestId('ws-state')).toHaveText('Verbunden');
   await expect(page.getByTestId('world-zone')).toContainText('central-square');
   await expect(page.getByTestId('last-message')).toHaveText('world-snapshot');
 
@@ -126,7 +126,7 @@ test('registers, restores the selected character and websocket, then logs out', 
   await page.getByTestId('logout-button').click();
   expect((await logout).status()).toBe(204);
 
-  await expect(page.getByTestId('ws-state')).toHaveText('disconnected');
+  await expect(page.getByTestId('ws-state')).toHaveText('Getrennt');
   await expect(page.getByTestId('email-input')).toBeVisible();
   await expect(page.getByTestId('character-list')).toHaveCount(0);
   await expect
@@ -147,5 +147,5 @@ test('registers, restores the selected character and websocket, then logs out', 
 
   await page.reload();
   await expect(page.getByTestId('email-input')).toBeVisible();
-  await expect(page.getByTestId('ws-state')).toHaveText('disconnected');
+  await expect(page.getByTestId('ws-state')).toHaveText('Getrennt');
 });
