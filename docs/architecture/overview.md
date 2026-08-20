@@ -257,6 +257,11 @@ Frozen-Lockfile-Installation und Migration in dieser Reihenfolge aus:
 5. Chromium installieren und `pnpm e2e`
 6. `pnpm build`
 
+`renovate.json` ergänzt die CI um geplante Dependency-Pull-Requests:
+nicht-breaking npm-/Actions-Updates werden gruppiert, Majors bleiben einzeln
+und ein wöchentlicher Lockfile-Wartungslauf ist vorgesehen. Die Repository-
+Aktivierung der Renovate GitHub App bleibt ein manueller Administrationsschritt.
+
 ## Tests
 
 | Abdeckung                                                                     | Projekt       |
