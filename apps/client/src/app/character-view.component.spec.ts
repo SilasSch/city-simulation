@@ -29,6 +29,7 @@ describe('CharacterViewComponent', () => {
     error: ReturnType<typeof signal<string | null>>;
     loadAll: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
+    delete: ReturnType<typeof vi.fn>;
     select: ReturnType<typeof vi.fn>;
   };
 
@@ -44,6 +45,7 @@ describe('CharacterViewComponent', () => {
       error: signal(options?.loadError ?? null),
       loadAll: vi.fn(),
       create: vi.fn().mockReturnValue(of(CHARACTERS[0])),
+      delete: vi.fn().mockReturnValue(of(undefined)),
       select: vi.fn().mockReturnValue(of(CHARACTERS[1])),
     };
 
@@ -141,6 +143,16 @@ describe('CharacterViewComponent', () => {
     expect(
       el().querySelector('[data-testid="selected-character"]')?.textContent,
     ).toContain('Borin');
+  });
+
+  it('deletes the chosen character through the service', () => {
+    createComponent({ characters: CHARACTERS, selected: CHARACTERS[0] });
+
+    query<HTMLButtonElement>(
+      `[data-testid="delete-${CHARACTERS[1].id}"]`,
+    ).click();
+
+    expect(characterStub.delete).toHaveBeenCalledWith(CHARACTERS[1].id);
   });
 
   it('shows an understandable error when creation fails', () => {

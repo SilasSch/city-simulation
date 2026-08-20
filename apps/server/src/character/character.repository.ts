@@ -20,8 +20,12 @@ export class CharacterRepository {
     });
   }
 
-  async findById(id: string): Promise<Character | null> {
-    return this.prisma.character.findUnique({ where: { id } });
+  async findById(
+    id: string,
+    tx?: TransactionClient,
+  ): Promise<Character | null> {
+    const client = tx ?? this.prisma;
+    return client.character.findUnique({ where: { id } });
   }
 
   async countByProfile(
@@ -48,6 +52,20 @@ export class CharacterRepository {
       where: { id: playerProfileId },
       data: { selectedCharacterId: characterId },
     });
+  }
+
+  async clearSelected(
+    playerProfileId: string,
+    tx: TransactionClient,
+  ): Promise<void> {
+    await tx.playerProfile.update({
+      where: { id: playerProfileId },
+      data: { selectedCharacterId: null },
+    });
+  }
+
+  async delete(id: string, tx: TransactionClient): Promise<void> {
+    await tx.character.delete({ where: { id } });
   }
 
   async findSelectedByProfile(

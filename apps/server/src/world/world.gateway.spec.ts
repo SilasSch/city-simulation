@@ -2,7 +2,15 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { AddressInfo } from 'node:net';
 import { Socket, io as ioClient } from 'socket.io-client';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import {
   PROTOCOL_ERROR_EVENT_TYPE,
   WORLD_ENTER_COMMAND_TYPE,
@@ -52,6 +60,7 @@ describe('World via RealtimeGateway (integration)', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     for (const socket of openSockets.splice(0)) socket.disconnect();
     await cleanDatabase(prisma);
   });
@@ -216,28 +225,72 @@ describe('World via RealtimeGateway (integration)', () => {
     ).toMatchObject({ x: 55, y: 70 });
   });
 
-  it('disconnects a socket whose session was revoked before the command', async () => {
+  it('disconnects every socket immediately when its session is revoked', async () => {
     const player = await createPlayer('revoked-socket@example.com');
+    const first = connect(player.cookie);
+    const second = connect(player.cookie);
+    await Promise.all([first.connected, second.connected]);
+
+    const responses = [
+      nextMessage(first.socket, PROTOCOL_ERROR_EVENT_TYPE),
+      nextMessage(second.socket, PROTOCOL_ERROR_EVENT_TYPE),
+    ];
+    const disconnected = [first.socket, second.socket].map(
+      (socket) =>
+        new Promise<void>((resolve) =>
+          socket.once('disconnect', () => resolve()),
+        ),
+    );
+    await auth.revokeSession(player.sessionId);
+
+    for (const response of await Promise.all(responses)) {
+      expect(protocolErrorPayloadSchema.parse(response.payload).code).toBe(
+        'AUTHENTICATION_REQUIRED',
+      );
+    }
+    await Promise.all(disconnected);
+    expect(first.socket.connected).toBe(false);
+    expect(second.socket.connected).toBe(false);
+    expect(await prisma.characterWorldState.count()).toBe(0);
+  });
+
+  it('disconnects an active socket when the fixed session expiry is reached', async () => {
+    const player = await createPlayer('expiring-socket@example.com');
+    await prisma.session.update({
+      where: { id: player.sessionId },
+      data: { expiresAt: new Date(Date.now() + 500) },
+    });
     const { socket, connected } = connect(player.cookie);
     await connected;
-    await prisma.session.delete({ where: { id: player.sessionId } });
 
-    const responsePromise = nextMessage(socket);
+    const responsePromise = nextMessage(socket, PROTOCOL_ERROR_EVENT_TYPE);
     const disconnected = new Promise<void>((resolve) =>
       socket.once('disconnect', () => resolve()),
     );
-    socket.emit(
-      PROTOCOL_CHANNEL,
-      createMessage(WORLD_ENTER_COMMAND_TYPE, { zoneId: WORLD_ZONE_ID }),
-    );
 
     const response = await responsePromise;
-    expect(response.type).toBe(PROTOCOL_ERROR_EVENT_TYPE);
     expect(protocolErrorPayloadSchema.parse(response.payload).code).toBe(
-      'AUTHENTICATION_REQUIRED',
+      'SESSION_EXPIRED',
     );
     await disconnected;
     expect(socket.connected).toBe(false);
-    expect(await prisma.characterWorldState.count()).toBe(0);
+  });
+
+  it('does not resolve the session again on the normal command path', async () => {
+    const player = await createPlayer('lookup-free@example.com');
+    const resolvePrincipal = vi.spyOn(auth, 'resolvePrincipal');
+    const { socket, connected } = connect(player.cookie);
+    await connected;
+    expect(resolvePrincipal).toHaveBeenCalledTimes(1);
+
+    await enter(socket);
+    const moved = nextMessage(socket, WORLD_POSITION_CHANGED_EVENT_TYPE);
+    socket.emit(
+      PROTOCOL_CHANNEL,
+      createMessage(WORLD_MOVE_COMMAND_TYPE, { direction: 'E' }),
+    );
+    await moved;
+
+    expect(resolvePrincipal).toHaveBeenCalledTimes(1);
   });
 });

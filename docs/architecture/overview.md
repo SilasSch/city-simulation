@@ -51,21 +51,23 @@ Auswahl am PlayerProfile, der persistente Weltzustand am Character. Der
 ausgewählte Character wird über einen zusammengesetzten Fremdschlüssel auf
 Datenbankebene gezwungen, demselben Profil zu gehören (ADR 0008).
 `CharacterWorldState` speichert Zone, Position, Revision, Energie und eine
-optionale Interaktion genau einmal pro Character.
+optionale Interaktion genau einmal pro Character. Wird der ausgewählte Character
+gelöscht, leert dieselbe Transaktion zuerst die Auswahl; der restriktive
+Fremdschlüssel verhindert jede andere Löschreihenfolge.
 
 ## Server-Module (`apps/server/src`)
 
-| Modul         | Verantwortung                                                                                  |
-| ------------- | ---------------------------------------------------------------------------------------------- |
-| `auth`        | Accounts, Argon2id, Sessions, Cookie, Guards, Rate-Limit und Ablauf-Cleanup                    |
-| `character`   | Create/List/Select/GetSelected, Namensdomäne und Besitz                                        |
-| `world`       | Eintritt, Online-Präsenz, Collider und persistente serverautoritative Bewegung                 |
-| `simulation`  | Persistente Uhr, Energieprojektion und Interaktionszustände                                    |
-| `core`        | Zod-Konfiguration, REST-Origin-/CSRF-Guard, CORS, WebSocket-Origin-Adapter und Security-Header |
-| `health`      | `GET /api/health`, prüft Server und Datenbank                                                  |
-| `realtime`    | Validierter Socket.IO-Transport, Session-Revalidierung, Räume, Broadcasts und Simulationstakt  |
-| `persistence` | Globaler `PrismaService` als einziger DB-Zugang                                                |
-| `shared`      | HTTP-Exception-Filter und `ApplicationError` mit stabilen Fehlercodes                          |
+| Modul         | Verantwortung                                                                                        |
+| ------------- | ---------------------------------------------------------------------------------------------------- |
+| `auth`        | Accounts, Argon2id, Sessions, PostgreSQL-Rate-Limits, aktive Socket-Invalidierung und Ablauf-Cleanup |
+| `character`   | Create/List/Select/GetSelected/Delete, Namensdomäne und Besitz                                       |
+| `world`       | Eintritt, Online-Präsenz, Collider und persistente serverautoritative Bewegung                       |
+| `simulation`  | Persistente Uhr, Energieprojektion und Interaktionszustände                                          |
+| `core`        | Zod-Konfiguration, Proxy-Grenze, Origin-/CSRF-Schutz, CORS und Security-Header                       |
+| `health`      | `GET /api/health`, prüft Server und Datenbank                                                        |
+| `realtime`    | Validierter Socket.IO-Transport, Räume, Broadcasts und Simulationstakt                               |
+| `persistence` | Globaler `PrismaService` als einziger DB-Zugang                                                      |
+| `shared`      | HTTP-Exception-Filter und `ApplicationError` mit stabilen Fehlercodes                                |
 
 Schichtenregeln:
 
@@ -77,39 +79,28 @@ Schichtenregeln:
 - Neue fachliche Module werden als eigene Ordner neben den bestehenden angelegt
   — erst wenn ein konkretes Feature sie benötigt.
 
-## Authentifizierung und Session (ADR 0007)
+## Authentifizierung und Session (ADR 0007, 0012 und 0013)
 
-- REST: `POST /api/auth/register` erzeugt User und PlayerProfile atomar
-  und startet eine Session; Login, idempotenter Logout und Session-Restore
-  liegen ebenfalls unter `/api/auth`.
-- Passwörter: Argon2id (m=19 MiB, t=2, p=1), niemals Klartext oder Log-Inhalt.
-  Auch eine unbekannte Login-E-Mail führt eine echte Prüfung gegen einen
-  statischen Dummy-Argon2-Hash aus; es gibt keinen billigen Early Return.
-- Register und Login haben getrennte IP-basierte Fixed-Window-Limits vor
-  Argon2: 3 beziehungsweise 5 Requests pro 60 Sekunden. Der stabile Fehler ist
-  `RATE_LIMITED` (429). Der In-Memory-Store ist für eine Serverinstanz gedacht;
-  mehrere Replikate benötigen einen gemeinsamen Store.
-- Eine Session ist eine DB-Zeile mit opaquem 256-Bit-Token und festem Ablauf
-  (`SESSION_TTL_HOURS`, kein Sliding). Abgelaufene Zeilen werden beim Zugriff,
-  beim Anwendungsstart und danach alle 15 Minuten gelöscht; `expiresAt` ist
-  indiziert und der Wartungstimer hält den Prozess nicht offen.
-- Das Cookie `city_session` ist `HttpOnly`, `SameSite=Lax`, `Path=/`.
-  In Produktion sind expliziter `CLIENT_ORIGIN` und
-  `SESSION_COOKIE_SECURE=true` Pflicht; ungültige Konfiguration verhindert
-  den Start.
-- `SessionAuthGuard` und `@CurrentPrincipal()` liefern die Identität.
-  User-, Profil- oder Character-IDs aus nicht dafür vorgesehenen Clientdaten
-  werden nicht als Identitätsbehauptung akzeptiert.
-- Unsichere REST-Methoden müssen exakt vom `CLIENT_ORIGIN` stammen
-  (CSRF-/Origin-Guard). Credentialed CORS, Socket.IO-Polling und der echte
-  WebSocket-Handshake verwenden dieselbe exakte Allowlist; fehlende, opake oder
-  fremde Origins werden an den schreibenden Grenzen abgelehnt.
-- Basis-Header setzen restriktive CSP, Permissions- und Referrer-Policy,
-  `nosniff`, Frame-Schutz und entfernen `X-Powered-By`; Produktion ergänzt
-  HSTS.
-- WebSocket: Handshake und Cookie müssen gültig sein. Vor jedem Protokoll-
-  Command wird die Session erneut aus PostgreSQL aufgelöst. Logout oder Ablauf
-  erzeugen einen stabilen Fehler und trennen auch bereits verbundene Sockets.
+- REST erzeugt, prüft und beendet serverseitige Sessions mit opakem
+  256-Bit-Token und festem Ablauf. Passwörter verwenden Argon2id; unbekannte
+  Login-E-Mails durchlaufen dieselbe teure Dummy-Prüfung.
+- Registrierung besitzt ein IP-Limit von 3/min. Login kombiniert ein grobes
+  IP-Limit von 20/min mit einem Limit von 5/min je IP und normalisierter
+  E-Mail. Atomare Fixed-Window-Buckets liegen in PostgreSQL, enthalten nur
+  gehashte Schlüssel und werden damit von allen Server-Replikaten geteilt.
+- `TRUST_PROXY_HOPS` ist in Produktion Pflicht. Lokal ist der Wert 0; der
+  Compose-Stack vertraut exakt einem internen Reverse-Proxy-Hop. Nur so ist
+  `request.ip` eine belastbare Rate-Limit-Grenze.
+- Abgelaufene Session-Zeilen werden beim Zugriff, beim Start und alle 15 Minuten
+  entfernt. Ein lokales Register ordnet nach erfolgreichem Handshake alle Tabs
+  einer Session zu. Logout und Ablauf senden einen stabilen Fehler und trennen
+  sofort sämtliche zugehörigen Sockets.
+- Normale WebSocket-Commands benötigen dadurch keinen Session-Lookup in
+  PostgreSQL. Der feste Ablauftimer wird beim Registrieren geplant und hält den
+  Node-Prozess nicht offen.
+- `SessionAuthGuard`, `@CurrentPrincipal()`, exakte REST-/Socket-Origin-
+  Allowlist, Secure/HttpOnly/SameSite-Cookie und zentrale Security-Header bilden
+  die übrige Identitäts- und Browsergrenze.
 
 ## Netzwerkprotokoll (`libs/game-protocol`)
 
@@ -131,6 +122,7 @@ REST-Verträge (alle Antworten als DTOs, keine Prisma-Modelle):
 | GET     | `/api/auth/session`          | –                              | 200 `AuthSessionDto` / 401    |
 | POST    | `/api/characters`            | `createCharacterRequestSchema` | 201 `CharacterDto`            |
 | GET     | `/api/characters`            | –                              | 200 `CharacterDto[]`          |
+| DELETE  | `/api/characters/:id`        | `characterIdParamSchema`       | 204                           |
 | POST    | `/api/characters/:id/select` | `characterIdParamSchema`       | 200 `CharacterDto`            |
 | GET     | `/api/characters/selected`   | –                              | 200 `CharacterDto` / 404      |
 
