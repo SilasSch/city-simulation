@@ -27,6 +27,7 @@ import {
 } from '@city/game-protocol';
 import { AuthService } from '../auth/auth.service';
 import { SessionCookieService } from '../auth/session-cookie.service';
+import { SessionSocketRegistry } from '../auth/session-socket-registry.service';
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal';
 import { ApplicationError } from '../shared/application-error';
 import { SimulationService } from '../simulation/simulation.service';
@@ -71,6 +72,7 @@ export class RealtimeGateway
     private readonly messages: RealtimeMessageService,
     private readonly auth: AuthService,
     private readonly sessionCookie: SessionCookieService,
+    private readonly socketSessions: SessionSocketRegistry,
     private readonly world: WorldService,
     private readonly presence: WorldPresenceService,
     private readonly simulation: SimulationService,
@@ -99,6 +101,23 @@ export class RealtimeGateway
           return;
         }
         (socket.data as SocketData).principal = resolution.session.principal;
+        this.socketSessions.register(
+          token,
+          resolution.session.expiresAt,
+          socket.id,
+          (reason) => {
+            this.emitError(
+              socket,
+              reason === 'expired'
+                ? 'SESSION_EXPIRED'
+                : 'AUTHENTICATION_REQUIRED',
+              reason === 'expired'
+                ? 'Session expired'
+                : 'Authentication required',
+            );
+            socket.disconnect(true);
+          },
+        );
         next();
       } catch (error) {
         this.logger.error(
@@ -128,6 +147,7 @@ export class RealtimeGateway
   }
 
   async handleDisconnect(client: Socket): Promise<void> {
+    this.socketSessions.unregister(client.id);
     const departure = this.presence.leave(client.id);
     if (departure?.lastSocket) {
       await this.simulation.abortInteraction(departure.characterId);
@@ -142,8 +162,6 @@ export class RealtimeGateway
 
   @SubscribeMessage(PROTOCOL_CHANNEL)
   async handleProtocolMessage(client: Socket, raw: unknown): Promise<void> {
-    if (!(await this.revalidateSession(client))) return;
-
     const socketData = client.data as SocketData;
     const parsed = parseIncomingMessage(raw);
 
@@ -314,38 +332,6 @@ export class RealtimeGateway
         parsed.envelope.requestId,
       );
     }
-  }
-
-  private async revalidateSession(client: Socket): Promise<boolean> {
-    const socketData = client.data as SocketData;
-    try {
-      const resolution = await this.auth.resolvePrincipal(
-        socketData.principal.sessionId,
-      );
-      if (resolution.status === 'ok') {
-        socketData.principal = resolution.session.principal;
-        return true;
-      }
-
-      this.emitError(
-        client,
-        resolution.status === 'expired'
-          ? 'SESSION_EXPIRED'
-          : 'AUTHENTICATION_REQUIRED',
-        resolution.status === 'expired'
-          ? 'Session expired'
-          : 'Authentication required',
-      );
-    } catch (error) {
-      this.logger.error(
-        'Session revalidation during websocket command failed',
-        error instanceof Error ? error.stack : String(error),
-      );
-      this.emitError(client, 'UNEXPECTED_ERROR', 'Session validation failed');
-    }
-
-    client.disconnect(true);
-    return false;
   }
 
   private async broadcastSimulationTick(server: Server): Promise<void> {

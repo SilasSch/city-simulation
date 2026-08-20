@@ -1,22 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../persistence/prisma.service';
+import type { SessionSocketRegistry } from './session-socket-registry.service';
 import {
   SESSION_CLEANUP_INTERVAL_MS,
   SessionCleanupService,
 } from './session-cleanup.service';
 
 describe('SessionCleanupService', () => {
+  let findMany: ReturnType<typeof vi.fn>;
   let deleteMany: ReturnType<typeof vi.fn>;
+  let revoke: ReturnType<typeof vi.fn>;
   let service: SessionCleanupService;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-12T12:00:00.000Z'));
+    findMany = vi.fn().mockResolvedValue([]);
     deleteMany = vi.fn().mockResolvedValue({ count: 0 });
+    revoke = vi.fn();
     const prisma = {
-      session: { deleteMany },
+      session: { findMany, deleteMany },
     } as unknown as PrismaService;
-    service = new SessionCleanupService(prisma);
+    const socketSessions = { revoke } as unknown as SessionSocketRegistry;
+    service = new SessionCleanupService(prisma, socketSessions);
   });
 
   afterEach(() => {
@@ -26,16 +32,22 @@ describe('SessionCleanupService', () => {
   });
 
   it('deletes already expired sessions during application startup', async () => {
+    findMany.mockResolvedValueOnce([{ id: 'session-a' }, { id: 'session-b' }]);
     deleteMany.mockResolvedValueOnce({ count: 2 });
 
     await service.onApplicationBootstrap();
 
-    expect(deleteMany).toHaveBeenCalledOnce();
-    expect(deleteMany).toHaveBeenCalledWith({
+    expect(findMany).toHaveBeenCalledWith({
       where: {
         expiresAt: { lte: new Date('2026-08-12T12:00:00.000Z') },
       },
+      select: { id: true },
     });
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['session-a', 'session-b'] } },
+    });
+    expect(revoke).toHaveBeenCalledWith('session-a', 'expired');
+    expect(revoke).toHaveBeenCalledWith('session-b', 'expired');
     await expect(
       service.removeExpiredSessions(new Date('2026-08-12T12:00:01.000Z')),
     ).resolves.toBe(0);

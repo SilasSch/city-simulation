@@ -19,6 +19,11 @@ Domain, ohne Pfad und ohne abschließenden Slash). `SESSION_COOKIE_SECURE=true`
 ist im Compose-Modell fest gesetzt. Eine abweichende Origin verhindert bewusst
 schreibende REST-Aufrufe und WebSocket-Verbindungen.
 
+`TRUST_PROXY_HOPS=1` beschreibt die konkrete Grenze Nginx → Server. Nur dieser
+eine vorgeschaltete Hop darf die für Auth-Rate-Limits verwendete Client-IP aus
+`X-Forwarded-For` bestimmen. Den Wert nicht erhöhen und den Server-Port nicht
+öffentlich verfügbar machen; sonst könnten Clients eine fremde IP vortäuschen.
+
 ## Voraussetzungen und manuelle Schritte
 
 **MANUELL – vor dem ersten Start:**
@@ -58,6 +63,8 @@ chmod 600 .env.production
 - `POSTGRES_PASSWORD`: langen, zufällig erzeugten Wert einsetzen;
 - `DOMAIN`: nur den DNS-Namen, zum Beispiel `staging.city.example`;
 - `CLIENT_ORIGIN`: exakt `https://` plus denselben Namen;
+- `TRUST_PROXY_HOPS=1`: genau einen internen Reverse-Proxy-Hop vertrauen;
+- `SIMULATION_SPEED`: Simulationssekunden pro realer Sekunde, standardmäßig 60;
 - Benutzer, Datenbankname und Session-Laufzeit bei Bedarf anpassen.
 
 Keine echten Werte in Git, Shell-History, Tickets oder Logs kopieren. Das

@@ -2,92 +2,108 @@ import {
   CanActivate,
   ExecutionContext,
   HttpStatus,
+  Inject,
   Injectable,
   SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { createHash } from 'node:crypto';
 import type { Request } from 'express';
 import { ApplicationError } from '../shared/application-error';
+import {
+  AUTH_RATE_LIMIT_STORE,
+  type AuthRateLimitStore,
+} from './rate-limit.store';
 
 export type AuthRateLimitRoute = 'register' | 'login';
 
 export const AUTH_RATE_LIMIT_POLICIES = {
-  register: { maxRequests: 3, windowMs: 60_000 },
-  login: { maxRequests: 5, windowMs: 60_000 },
-} as const satisfies Record<
-  AuthRateLimitRoute,
-  { maxRequests: number; windowMs: number }
->;
+  registerIp: { maxRequests: 3, windowMs: 60_000 },
+  loginIp: { maxRequests: 20, windowMs: 60_000 },
+  loginIdentity: { maxRequests: 5, windowMs: 60_000 },
+} as const;
 
 const AUTH_RATE_LIMIT_ROUTE = Symbol('AUTH_RATE_LIMIT_ROUTE');
 
-/** Markiert einen Auth-Endpunkt für sein eigenes, IP-basiertes Limit. */
 export const AuthRateLimited = (route: AuthRateLimitRoute): MethodDecorator =>
   SetMetadata(AUTH_RATE_LIMIT_ROUTE, route);
 
-interface RateLimitBucket {
-  count: number;
-  startedAt: number;
+function bucketKey(scope: string, value: string): string {
+  return createHash('sha256').update(`${scope}:${value}`).digest('hex');
+}
+
+function normalizeEmail(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized.slice(0, 254) : null;
 }
 
 /**
- * Prozesslokaler Fixed-Window-Limiter. Die Buckets sind pro Route getrennt,
- * damit z. B. Login-Versuche nicht das Registrierungs-Limit verbrauchen.
- *
- * Für mehrere Server-Instanzen muss diese Implementierung später durch
- * einen gemeinsamen Store ersetzt werden; der Guard-Vertrag bleibt dabei
- * unverändert.
+ * Replikaübergreifender Auth-Limiter. Der injizierte Store führt atomare
+ * Inkremente in PostgreSQL aus; weder IPs noch E-Mail-Adressen werden im
+ * Klartext als Bucket-Schlüssel persistiert.
  */
 @Injectable()
 export class AuthRateLimiter {
-  private readonly buckets = new Map<string, RateLimitBucket>();
+  constructor(
+    @Inject(AUTH_RATE_LIMIT_STORE)
+    private readonly store: AuthRateLimitStore,
+  ) {}
 
-  consume(
+  async consume(
     route: AuthRateLimitRoute,
-    clientKey: string,
-    now = Date.now(),
-  ): void {
-    this.prune(now);
-    const policy = AUTH_RATE_LIMIT_POLICIES[route];
-    const key = `${route}:${clientKey}`;
-    const current = this.buckets.get(key);
-
-    if (
-      current === undefined ||
-      now < current.startedAt ||
-      now - current.startedAt >= policy.windowMs
-    ) {
-      this.buckets.set(key, { count: 1, startedAt: now });
+    clientIp: string,
+    normalizedEmail?: string | null,
+    now = new Date(),
+  ): Promise<void> {
+    if (route === 'register') {
+      await this.consumeBucket(
+        'register-ip',
+        clientIp,
+        AUTH_RATE_LIMIT_POLICIES.registerIp,
+        now,
+      );
       return;
     }
 
-    if (current.count >= policy.maxRequests) {
+    await this.consumeBucket(
+      'login-ip',
+      clientIp,
+      AUTH_RATE_LIMIT_POLICIES.loginIp,
+      now,
+    );
+    if (normalizedEmail) {
+      await this.consumeBucket(
+        'login-identity',
+        `${clientIp}:${normalizedEmail}`,
+        AUTH_RATE_LIMIT_POLICIES.loginIdentity,
+        now,
+      );
+    }
+  }
+
+  clear(): Promise<void> {
+    return this.store.clear();
+  }
+
+  private async consumeBucket(
+    scope: string,
+    value: string,
+    policy: { maxRequests: number; windowMs: number },
+    now: Date,
+  ): Promise<void> {
+    const count = await this.store.increment(
+      bucketKey(scope, value),
+      now,
+      policy.windowMs,
+    );
+    if (count > policy.maxRequests) {
       throw new ApplicationError(
         'RATE_LIMITED',
         HttpStatus.TOO_MANY_REQUESTS,
         'Too many authentication attempts, try again later',
       );
     }
-
-    current.count += 1;
-  }
-
-  /** Entfernt abgelaufene Buckets und begrenzt so den Speicherverbrauch. */
-  prune(now = Date.now()): void {
-    for (const [key, bucket] of this.buckets) {
-      const route = key.slice(0, key.indexOf(':')) as AuthRateLimitRoute;
-      if (
-        now < bucket.startedAt ||
-        now - bucket.startedAt >= AUTH_RATE_LIMIT_POLICIES[route].windowMs
-      ) {
-        this.buckets.delete(key);
-      }
-    }
-  }
-
-  /** Test-Hook; Produktion startet ohnehin mit einem leeren Prozessspeicher. */
-  clear(): void {
-    this.buckets.clear();
   }
 }
 
@@ -98,7 +114,7 @@ export class AuthRateLimitGuard implements CanActivate {
     private readonly limiter: AuthRateLimiter,
   ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const route = this.reflector.get<AuthRateLimitRoute>(
       AUTH_RATE_LIMIT_ROUTE,
       context.getHandler(),
@@ -106,9 +122,15 @@ export class AuthRateLimitGuard implements CanActivate {
     if (route === undefined) return true;
 
     const request = context.switchToHttp().getRequest<Request>();
-    const clientKey =
+    const clientIp =
       request.ip ?? request.socket.remoteAddress ?? 'unknown-client';
-    this.limiter.consume(route, clientKey);
+    await this.limiter.consume(
+      route,
+      clientIp,
+      route === 'login'
+        ? normalizeEmail((request.body as Record<string, unknown>)?.['email'])
+        : null,
+    );
     return true;
   }
 }

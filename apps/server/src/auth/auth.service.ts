@@ -8,6 +8,7 @@ import { PrismaService } from '../persistence/prisma.service';
 import { ApplicationError } from '../shared/application-error';
 import type { AuthenticatedPrincipal } from './authenticated-principal';
 import { PasswordHasherService } from './password-hasher.service';
+import { SessionSocketRegistry } from './session-socket-registry.service';
 
 /** Ergebnis von register/login: DTO für den Body + Token für das Cookie. */
 export interface AuthResult {
@@ -39,6 +40,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly hasher: PasswordHasherService,
+    private readonly socketSessions: SessionSocketRegistry,
     config: ConfigService<AppConfig, true>,
   ) {
     this.sessionTtlMs =
@@ -154,6 +156,7 @@ export class AuthService {
     if (session.expiresAt.getTime() <= Date.now()) {
       // Abgelaufene Sessions werden beim Zugriff entfernt (lazy cleanup).
       await this.prisma.session.deleteMany({ where: { id: token } });
+      this.socketSessions.revoke(token, 'expired');
       this.logger.log({
         event: 'session-expired',
         userId: session.user.id,
@@ -177,12 +180,21 @@ export class AuthService {
 
   /** Macht eine Session serverseitig ungültig (idempotent). */
   async logout(token: string): Promise<void> {
+    if (await this.revokeSession(token)) {
+      this.logger.log({ event: 'user-logged-out' });
+    }
+  }
+
+  /**
+   * Gemeinsamer Widerrufspfad für Logout und administrative Aufrufer:
+   * erst persistent löschen, dann alle lokal registrierten Sockets trennen.
+   */
+  async revokeSession(token: string): Promise<boolean> {
     const deleted = await this.prisma.session.deleteMany({
       where: { id: token },
     });
-    if (deleted.count > 0) {
-      this.logger.log({ event: 'user-logged-out' });
-    }
+    this.socketSessions.revoke(token, 'revoked');
+    return deleted.count > 0;
   }
 
   private async startSession(user: {

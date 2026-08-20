@@ -44,7 +44,7 @@ model PlayerProfile {
   // dass der ausgewählte Character DIESEM Profil gehört. Ein fremder
   // Character scheitert am Constraint, NULL ist erlaubt (keine Auswahl).
   selectedCharacterId String?
-  selectedCharacter   Character?  @relation("SelectedCharacter", fields: [selectedCharacterId, id], references: [id, playerProfileId], onDelete: SetNull)
+  selectedCharacter   Character?  @relation("SelectedCharacter", fields: [selectedCharacterId, id], references: [id, playerProfileId], onDelete: Restrict)
   characters          Character[]
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
@@ -96,4 +96,13 @@ model SimulationClock {
   realAt      DateTime
   speed       Float
   updatedAt   DateTime @updatedAt
+}
+
+model AuthRateLimitBucket {
+  key             String   @id
+  count           Int
+  windowStartedAt DateTime
+  expiresAt       DateTime
+
+  @@index([expiresAt])
 }

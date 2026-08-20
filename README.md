@@ -1,9 +1,9 @@
 # city-simulation
 
 Technisches Fundament für eine persistente, Sims-artige Multiplayer-Stadt.
-Aktueller Stand: **erster durchgängiger Spielwelt-Vertical-Slice** — gehärtete
-Session-Authentifizierung, Character-Verwaltung und eine persistente,
-serverautoritative Zone mit Bewegung und Reconnect.
+Aktueller Stand: **durchgängiger Multiplayer-Spiel-Loop** — gehärtete
+Session-Authentifizierung, Character-Verwaltung, eine kollisionsbehaftete Karte,
+Live-Präsenz sowie persistente Simulationszeit, Energie und Interaktionen.
 
 ## Stack
 
@@ -35,8 +35,9 @@ pnpm dev            # Client (4200) + Server (3000) parallel
 Danach: <http://localhost:4200> — registrieren, Character anlegen (der
 erste wird automatisch ausgewählt) und die Zone **Central Square** betreten.
 WASD oder Pfeiltasten senden validierte Bewegungs-Commands; erst das
-Serverevent bewegt den Phaser-Marker. Position, Auswahl und Session werden
-beim Reload wiederhergestellt.
+Serverevent bewegt den Phaser-Marker. Gebäude und Brunnen blockieren Bewegung.
+An der südlichen Bank kann der Character rasten und Energie regenerieren.
+Position, Auswahl, Energie, Simulationszeit und Session werden wiederhergestellt.
 
 ## Staging-/Produktionsbetrieb mit Docker Compose
 
@@ -100,7 +101,8 @@ apps/
     src/core/        # Konfiguration, Origin-/CSRF-Schutz, Security-Header
     src/health/      # REST-Health
     src/realtime/    # validierter Socket.IO-Transport
-    src/world/       # Eintritt, Snapshot und serverautoritative Bewegung
+    src/world/       # Eintritt, Präsenz, Kollision und Bewegung
+    src/simulation/  # persistente Uhr, Energie und Interaktionen
     src/persistence/ # PrismaService (einziger DB-Zugang)
     src/shared/      # Exception-Filter, ApplicationError
 libs/
@@ -108,7 +110,7 @@ libs/
   game-protocol/     # Zod-Schemas für REST- und WS-Verträge
 docs/
   architecture/      # Architekturüberblick
-  decisions/         # ADRs 0001–0010
+  decisions/         # ADRs 0001–0013
   development/       # Getting Started
 ```
 
@@ -122,6 +124,7 @@ docs/
 | GET     | `/api/auth/session`          | Aktuelle Session abfragen                                    |
 | POST    | `/api/characters`            | Character erstellen (erster wird auto-ausgewählt)            |
 | GET     | `/api/characters`            | Eigene Characters auflisten                                  |
+| DELETE  | `/api/characters/:id`        | Eigenen Character sicher löschen                             |
 | POST    | `/api/characters/:id/select` | Eigenen Character auswählen                                  |
 | GET     | `/api/characters/selected`   | Aktuell ausgewählten Character laden                         |
 | GET     | `/api/health`                | Technischer Health-Check                                     |
@@ -134,40 +137,44 @@ konfigurierten `CLIENT_ORIGIN`; CORS verwendet dieselbe Allowlist.
 
 Alle Nachrichten laufen über den Socket.IO-Kanal `protocol`:
 
-| Richtung      | Typ                      | Bedeutung                                      |
-| ------------- | ------------------------ | ---------------------------------------------- |
-| Client→Server | `connect`                | Technischen Protokoll-Handshake abschließen    |
-| Client→Server | `world-enter`            | `central-square` betreten                      |
-| Server→Client | `world-snapshot`         | Bestätigten Zustand aller Zonen-Entities laden |
-| Client→Server | `world-move`             | Richtung `N/E/S/W` als Command senden          |
-| Server→Client | `world-position-changed` | Persistierte Position an die Zone broadcasten  |
+| Richtung      | Typ                      | Bedeutung                                               |
+| ------------- | ------------------------ | ------------------------------------------------------- |
+| Client→Server | `connect`                | Technischen Protokoll-Handshake abschließen             |
+| Client→Server | `world-enter`            | `central-square` betreten                               |
+| Server→Client | `world-snapshot`         | Bestätigte Projektion aller Online-Entities laden       |
+| Client→Server | `world-move`             | Richtung `N/E/S/W` als Command senden                   |
+| Client→Server | `world-interact`         | Interaktion mit einem Weltobjekt starten                |
+| Server→Client | `world-position-changed` | Persistierte Position an die Zone broadcasten           |
+| Server→Client | `world-entity-joined`    | Ersten Socket eines Characters ankündigen               |
+| Server→Client | `world-entity-left`      | Letzten Socket eines Characters abmelden                |
+| Server→Client | `world-entity-updated`   | Energie und Interaktionsfortschritt aktualisieren       |
+| Server→Client | `simulation-clock`       | Aktuelle Simulationszeit und Geschwindigkeit übertragen |
 
-Der Handshake prüft exakten Origin und Session. Vor **jedem** Command wird die
-Session erneut aus PostgreSQL aufgelöst; Logout oder Ablauf trennen damit auch
-einen bereits verbundenen Socket spätestens beim nächsten Command.
+Der Handshake prüft exakten Origin und Session genau einmal. Danach hält ein
+aktives Session-Socket-Register den Command-Pfad datenbankfrei; Logout und Ablauf
+trennen alle lokalen Sockets der Session sofort.
 
 ## Sicherheitsgrenze
 
-- Registrierung und Login werden pro Route und IP vor Argon2 begrenzt
-  (3 beziehungsweise 5 Requests pro Minute, Fehler `RATE_LIMITED`/429).
+- Registrierung wird pro IP auf 3 Requests pro Minute begrenzt. Login nutzt
+  ein grobes IP-Limit (20/min) plus IP-und-normalisierte-E-Mail (5/min). Die
+  atomaren Buckets liegen in PostgreSQL und gelten über Server-Replikate hinweg.
 - Unbekannte Login-E-Mails durchlaufen eine echte Dummy-Argon2-Prüfung und
   haben keinen billigen Early Return.
 - Abgelaufene Sessions werden beim Zugriff, beim Start und alle 15 Minuten
   gelöscht; `Session.expiresAt` ist indiziert.
-- Produktion verlangt expliziten `CLIENT_ORIGIN` und
-  `SESSION_COOKIE_SECURE=true`; andernfalls startet der Server nicht.
+- Produktion verlangt expliziten `CLIENT_ORIGIN`, `TRUST_PROXY_HOPS` und
+  `SESSION_COOKIE_SECURE=true`; andernfalls startet der Server nicht. Der
+  Compose-Stack vertraut genau dem einen vorgeschalteten Proxy-Hop.
 - REST und WebSocket nutzen dieselbe Origin-Allowlist. Security-Header
   schließen unter anderem Framing, MIME-Sniffing und unnötige Browserrechte
   aus; HSTS wird in Produktion gesetzt.
 
-Das Rate-Limit ist bewusst prozesslokal. Vor einem Betrieb mit mehreren
-Server-Replikaten muss der Bucket-Store geteilt werden.
-
 ## Bewusster Umfang
 
-Die Spielwelt besteht absichtlich aus genau einer statischen Zone mit
-persistenten Character-Positionen. Noch nicht enthalten sind Karten-/Kollisions-
-systeme, Wirtschaft, NPCs, autonome Agenten oder Microservices. Der Client
-nutzt keine optimistische Bewegung: Phaser zeigt ausschließlich vom Server
-bestätigten Zustand. Details stehen im
-`docs/architecture/overview.md` und in ADR 0010.
+Die Spielwelt bleibt absichtlich eine statische Zone, besitzt nun aber eine
+code-native Karte, gemeinsame Collider, Online-Präsenz, eine persistente Uhr,
+Energie und einen ersten Bank-Interaktionsloop. Noch nicht enthalten sind
+Wirtschaft, NPCs, autonome Agenten oder Microservices. Der Client nutzt keine
+optimistische Mutation: Phaser zeigt ausschließlich vom Server bestätigten
+Zustand. Details stehen im Architekturüberblick und in ADR 0010–0013.

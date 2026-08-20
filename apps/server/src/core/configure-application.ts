@@ -39,10 +39,12 @@ export function configureApplication(app: INestApplication): void {
   const config = app.get(ConfigService<AppConfig, true>);
   const clientOrigin = config.get('CLIENT_ORIGIN', { infer: true });
   const isProduction = config.get('NODE_ENV', { infer: true }) === 'production';
+  const trustProxyHops = config.get('TRUST_PROXY_HOPS', { infer: true });
   const express = app.getHttpAdapter().getInstance() as Express;
 
   app.setGlobalPrefix(GLOBAL_PREFIX);
   express.disable('x-powered-by');
+  express.set('trust proxy', trustProxyHops === 0 ? false : trustProxyHops);
   app.use(securityHeaders(buildSecurityHeaders(isProduction)));
   app.enableCors({
     credentials: true,

@@ -113,6 +113,44 @@ export class CharacterService {
     return toCharacterDto(character);
   }
 
+  async deleteCharacter(
+    principal: AuthenticatedPrincipal,
+    characterId: string,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const character = await this.characters.findById(characterId, tx);
+      if (!character) {
+        throw new ApplicationError(
+          'CHARACTER_NOT_FOUND',
+          404,
+          'Character not found',
+        );
+      }
+      if (character.playerProfileId !== principal.playerProfileId) {
+        throw new ApplicationError(
+          'CHARACTER_NOT_OWNED',
+          403,
+          'Character does not belong to the current player',
+        );
+      }
+
+      const selected = await tx.playerProfile.findUniqueOrThrow({
+        where: { id: principal.playerProfileId },
+        select: { selectedCharacterId: true },
+      });
+      if (selected.selectedCharacterId === characterId) {
+        await this.characters.clearSelected(principal.playerProfileId, tx);
+      }
+      await this.characters.delete(characterId, tx);
+    });
+
+    this.logger.log({
+      event: 'character-deleted',
+      characterId,
+      playerProfileId: principal.playerProfileId,
+    });
+  }
+
   /** Lädt den dauerhaft gespeicherten, aktuell ausgewählten Character. */
   async getSelectedCharacter(
     principal: AuthenticatedPrincipal,
