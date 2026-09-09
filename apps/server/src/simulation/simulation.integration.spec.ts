@@ -102,4 +102,34 @@ describe('first simulation loop (integration)', () => {
       interactionEndsAt: null,
     });
   });
+
+  it('pays money when a job interaction completes', async () => {
+    const principal = await player();
+    const entry = await world.enter(principal, WORLD_ZONE_ID);
+    await prisma.characterWorldState.update({
+      where: { characterId: entry.context.characterId },
+      data: { x: 38, y: 30, money: 0 },
+    });
+
+    const active = await world.interact(
+      principal,
+      entry.context,
+      'kiosk-north',
+    );
+    expect(active.interaction?.objectId).toBe('kiosk-north');
+    expect(active.money).toBe(0);
+
+    const completionNow = new Date(simulation.clockSnapshot().simulatedTime);
+    await prisma.characterWorldState.update({
+      where: { characterId: entry.context.characterId },
+      data: {
+        interactionStartedAt: new Date(completionNow.getTime() - 180_001),
+        interactionEndsAt: new Date(completionNow.getTime() - 1),
+      },
+    });
+    const completed = (await simulation.tick([entry.context.characterId]))
+      .entities[0];
+    expect(completed?.interaction).toBeNull();
+    expect(completed?.money).toBe(25);
+  });
 });
