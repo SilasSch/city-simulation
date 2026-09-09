@@ -1,7 +1,49 @@
 import { randomUUID } from 'node:crypto';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 const APP_ORIGIN = 'http://localhost:4200';
+
+/**
+ * Wait until a Socket.IO frame carries the given protocol event type.
+ * Later simulation events may overwrite the UI "last message", so callers
+ * must select by type from received traffic rather than assert the latest UI value.
+ */
+function waitForReceivedProtocolEvent(
+  page: Page,
+  eventType: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeoutMs = 15_000;
+    const timer = setTimeout(() => {
+      page.off('websocket', onWebSocket);
+      reject(
+        new Error(`Timed out waiting for protocol event "${eventType}"`),
+      );
+    }, timeoutMs);
+
+    const payloadContainsEvent = (payload: string): boolean =>
+      payload.includes(`"type":"${eventType}"`) ||
+      payload.includes(`"type": "${eventType}"`);
+
+    const onFrame = (frame: { payload: string | Buffer }): void => {
+      const payload = frame.payload;
+      if (typeof payload !== 'string' || !payloadContainsEvent(payload)) {
+        return;
+      }
+      clearTimeout(timer);
+      page.off('websocket', onWebSocket);
+      resolve();
+    };
+
+    const onWebSocket = (ws: {
+      on: (event: 'framereceived', listener: typeof onFrame) => void;
+    }): void => {
+      ws.on('framereceived', onFrame);
+    };
+
+    page.on('websocket', onWebSocket);
+  });
+}
 
 test.describe.configure({ mode: 'serial' });
 
@@ -108,6 +150,10 @@ test('registers, restores the selected character and websocket, then logs out', 
   if (!sessionCookie) throw new Error('Session cookie was not set');
   expect(sessionCookie.httpOnly).toBe(true);
 
+  const worldSnapshotReceived = waitForReceivedProtocolEvent(
+    page,
+    'world-snapshot',
+  );
   await page.reload();
 
   await expect(page.getByTestId('session-info')).toContainText(email);
@@ -115,8 +161,8 @@ test('registers, restores the selected character and websocket, then logs out', 
     selectedCharacter,
   );
   await expect(page.getByTestId('ws-state')).toHaveText('Verbunden');
+  await worldSnapshotReceived;
   await expect(page.getByTestId('world-zone')).toContainText('central-square');
-  await expect(page.getByTestId('last-message')).toHaveText('world-snapshot');
 
   const logout = page.waitForResponse(
     (response) =>
