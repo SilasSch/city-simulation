@@ -200,6 +200,10 @@ export class SimulationService implements OnModuleInit {
       );
     }
 
+    if (object.price > 0) {
+      return this.purchase(characterId, object, state, simulatedNow);
+    }
+
     const currentEnergy = energyAt(
       state.energy,
       state.energyUpdatedAt,
@@ -238,6 +242,47 @@ export class SimulationService implements OnModuleInit {
         interactionEndsAt: null,
       },
     });
+  }
+
+  private async purchase(
+    characterId: string,
+    object: (typeof WORLD_INTERACTION_OBJECTS)[number],
+    state: {
+      energy: number;
+      energyUpdatedAt: Date;
+      money: number;
+    },
+    simulatedNow: Date,
+  ): Promise<WorldEntity> {
+    if (state.money < object.price) {
+      throw new ApplicationError(
+        'INSUFFICIENT_FUNDS',
+        409,
+        'Not enough money for this purchase',
+      );
+    }
+
+    const currentEnergy = energyAt(
+      state.energy,
+      state.energyUpdatedAt,
+      simulatedNow,
+    );
+    const nextEnergy = Math.min(ENERGY_MAX, currentEnergy + object.energyGain);
+    const nextMoney = Math.max(MONEY_MIN, state.money - object.price);
+
+    await this.prisma.characterWorldState.update({
+      where: { characterId },
+      data: {
+        energy: nextEnergy,
+        energyUpdatedAt: simulatedNow,
+        money: nextMoney,
+        interactionObjectId: null,
+        interactionStartedAt: null,
+        interactionEndsAt: null,
+      },
+    });
+
+    return this.entity(characterId);
   }
 
   private async projectState(

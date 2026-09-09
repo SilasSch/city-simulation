@@ -69,6 +69,14 @@ import { WorldStateService } from './world-state.service';
         >
           Am Nord-Kiosk arbeiten (+25 Geld)
         </button>
+        <button
+          type="button"
+          data-testid="shop-action"
+          [disabled]="!!self.interaction || self.money < 15"
+          (click)="world.interact('snack-east')"
+        >
+          Snack kaufen (−15 Geld, +20 Energy)
+        </button>
       }
       <p>Steuerung: WASD oder Pfeiltasten</p>
       <div #gameContainer class="game-container"></div>

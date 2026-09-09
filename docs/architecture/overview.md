@@ -151,7 +151,8 @@ automatisch ausgewählt (ADR 0009); die Auswahl überlebt Server-Neustarts
 - Characters haben eine persistente Währung `money` (Start 0, ganzzahlig,
   nie negativ). Nur der Server bucht Änderungen; Clients zeigen den bestätigten
   Wert. Am Nord-Kiosk (`kiosk-north`) verdient eine abgeschlossene Job-
-  Interaktion 25 Geld; Ausgeben folgt im Kauf-Ticket.
+  Interaktion 25 Geld. Am Ost-Snackstand (`snack-east`) kostet ein Sofortkauf
+  15 Geld und gibt 20 Energy; zu wenig Geld liefert `INSUFFICIENT_FUNDS`.
 - `world-interact` startet an der südlichen Bank eine exklusive,
   entfernungsgeprüfte Rast-Interaktion. Abschluss gibt 30 Energie; Bewegung,
   letzter Disconnect und Kontextverlust brechen sie ab. Tick-Events projizieren
@@ -203,7 +204,8 @@ Fehlercodes (stabil, maschinenlesbar; REST und WS konsistent):
 - Character/World: `CHARACTER_NAME_INVALID`, `CHARACTER_NOT_FOUND`,
   `CHARACTER_NOT_OWNED`, `NO_CHARACTER_SELECTED`, `WORLD_NOT_ENTERED`,
   `WORLD_MOVE_BLOCKED`, `INTERACTION_OBJECT_NOT_FOUND`,
-  `INTERACTION_OUT_OF_RANGE`, `INTERACTION_ALREADY_ACTIVE`
+  `INTERACTION_OUT_OF_RANGE`, `INTERACTION_ALREADY_ACTIVE`,
+  `INSUFFICIENT_FUNDS`
 
 ## Client (`apps/client`)
 

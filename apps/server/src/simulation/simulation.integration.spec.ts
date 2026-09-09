@@ -132,4 +132,31 @@ describe('first simulation loop (integration)', () => {
     expect(completed?.interaction).toBeNull();
     expect(completed?.money).toBe(25);
   });
+
+  it('rejects and applies snack purchases by wallet balance', async () => {
+    const principal = await player();
+    const entry = await world.enter(principal, WORLD_ZONE_ID);
+    await prisma.characterWorldState.update({
+      where: { characterId: entry.context.characterId },
+      data: { x: 70, y: 50, money: 10, energy: 50 },
+    });
+
+    await expect(
+      world.interact(principal, entry.context, 'snack-east'),
+    ).rejects.toMatchObject({ code: 'INSUFFICIENT_FUNDS' });
+
+    await prisma.characterWorldState.update({
+      where: { characterId: entry.context.characterId },
+      data: { money: 15 },
+    });
+    const purchased = await world.interact(
+      principal,
+      entry.context,
+      'snack-east',
+    );
+    expect(purchased.interaction).toBeNull();
+    expect(purchased.money).toBe(0);
+    expect(purchased.energy).toBeGreaterThanOrEqual(69.9);
+    expect(purchased.energy).toBeLessThanOrEqual(70);
+  });
 });
