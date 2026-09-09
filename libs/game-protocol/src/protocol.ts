@@ -192,12 +192,17 @@ export const worldInteractionStateSchema = z.object({
 });
 export type WorldInteractionState = z.infer<typeof worldInteractionStateSchema>;
 
+/** Non-negative integer currency on a character. Server is the only writer. */
+export const CHARACTER_MONEY_MIN = 0;
+export const CHARACTER_MONEY_START = 0;
+
 export const worldEntitySchema = z.object({
   characterId: z.string().uuid(),
   name: z.string().min(1).max(32),
   x: z.number().int().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
   y: z.number().int().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
   energy: z.number().min(0).max(100),
+  money: z.number().int().min(CHARACTER_MONEY_MIN),
   interaction: worldInteractionStateSchema.nullable(),
 });
 export type WorldEntity = z.infer<typeof worldEntitySchema>;

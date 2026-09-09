@@ -59,6 +59,7 @@ describe('RealtimeService server-event routing', () => {
             x: 50,
             y: 50,
             energy: 90,
+            money: 0,
             interaction: null,
           },
         ],

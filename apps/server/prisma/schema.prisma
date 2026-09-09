@@ -81,6 +81,8 @@ model CharacterWorldState {
   revision             Int       @default(0)
   energy               Float     @default(100)
   energyUpdatedAt      DateTime  @default(now())
+  // Persistente Währung (v0.5). Start 0, nur serverseitig buchbar, nie negativ.
+  money                Int       @default(0)
   interactionObjectId  String?
   interactionStartedAt DateTime?
   interactionEndsAt    DateTime?
