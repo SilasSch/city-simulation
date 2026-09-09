@@ -175,6 +175,18 @@ export const WORLD_INTERACTION_OBJECTS = [
 export type WorldInteractionObject = (typeof WORLD_INTERACTION_OBJECTS)[number];
 export type WorldInteractionObjectId = WorldInteractionObject['id'];
 
+export function worldInteractionObject(
+  id: WorldInteractionObjectId,
+): WorldInteractionObject {
+  const object = WORLD_INTERACTION_OBJECTS.find(
+    (candidate) => candidate.id === id,
+  );
+  if (!object) {
+    throw new Error(`Unknown world interaction object: ${id}`);
+  }
+  return object;
+}
+
 export function isWorldPositionWalkable(x: number, y: number): boolean {
   if (
     !Number.isInteger(x) ||

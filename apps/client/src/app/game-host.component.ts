@@ -11,6 +11,7 @@ import {
 import Phaser from 'phaser';
 import { GameEngineService } from './game-engine.service';
 import { RealtimeService } from './realtime.service';
+import { worldInteractionObject } from '@city/game-protocol';
 import { WorldStateService } from './world-state.service';
 
 /**
@@ -72,10 +73,10 @@ import { WorldStateService } from './world-state.service';
         <button
           type="button"
           data-testid="shop-action"
-          [disabled]="!!self.interaction || self.money < 15"
+          [disabled]="!!self.interaction || self.money < snackPrice"
           (click)="world.interact('snack-east')"
         >
-          Snack kaufen (−15 Geld, +20 Energy)
+          Snack kaufen (−{{ snackPrice }} Geld, +{{ snackEnergyGain }} Energy)
         </button>
       }
       <p>Steuerung: WASD oder Pfeiltasten</p>
