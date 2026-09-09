@@ -93,7 +93,6 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
   protected readonly snackEnergyGain =
     worldInteractionObject('snack-east').energyGain;
 
-
   private readonly engine = inject(GameEngineService);
   protected readonly realtime = inject(RealtimeService);
   protected readonly world = inject(WorldStateService);
