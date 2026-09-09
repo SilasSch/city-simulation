@@ -27,6 +27,7 @@ const WORLD_ENTITY = {
   x: 50,
   y: 50,
   energy: 90,
+  money: 0,
   interaction: null,
 };
 
@@ -233,5 +234,22 @@ describe('parseServerMessage', () => {
     expect(unknown.ok).toBe(false);
     if (!malformed.ok) expect(malformed.code).toBe('VALIDATION_ERROR');
     if (!unknown.ok) expect(unknown.code).toBe('INVALID_MESSAGE');
+  });
+});
+
+describe('character currency', () => {
+  it('rejects negative character money', () => {
+    expect(
+      worldEntitySchema.safeParse({ ...WORLD_ENTITY, money: -1 }).success,
+    ).toBe(false);
+  });
+
+  it('accepts zero and positive integer money', () => {
+    expect(
+      worldEntitySchema.safeParse({ ...WORLD_ENTITY, money: 0 }).success,
+    ).toBe(true);
+    expect(
+      worldEntitySchema.safeParse({ ...WORLD_ENTITY, money: 250 }).success,
+    ).toBe(true);
   });
 });

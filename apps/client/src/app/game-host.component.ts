@@ -40,6 +40,7 @@ import { WorldStateService } from './world-state.service';
       </p>
       @if (world.selfEntity(); as self) {
         <p data-testid="energy">Energy: {{ self.energy.toFixed(1) }} / 100</p>
+        <p data-testid="money">Geld: {{ self.money }}</p>
         @if (self.interaction; as interaction) {
           <p data-testid="interaction-state">
             Ruht auf der Bank:

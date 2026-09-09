@@ -19,6 +19,8 @@ const CLOCK_ID = 'world';
 export const ENERGY_MIN = 0;
 export const ENERGY_MAX = 100;
 export const ENERGY_DECAY_PER_SIMULATION_HOUR = 5;
+export const MONEY_MIN = 0;
+export const MONEY_START = 0;
 
 interface ClockAnchor {
   simulatedAt: Date;
@@ -282,6 +284,7 @@ export class SimulationService implements OnModuleInit {
       x: state.x,
       y: state.y,
       energy: currentEnergy,
+      money: Math.max(MONEY_MIN, state.money),
       interaction,
     };
   }
