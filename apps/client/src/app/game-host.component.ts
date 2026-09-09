@@ -43,7 +43,13 @@ import { WorldStateService } from './world-state.service';
         <p data-testid="money">Geld: {{ self.money }}</p>
         @if (self.interaction; as interaction) {
           <p data-testid="interaction-state">
-            Ruht auf der Bank:
+            @if (interaction.objectId === 'bench-south') {
+              Ruht auf der Bank:
+            } @else if (interaction.objectId === 'kiosk-north') {
+              Arbeitet am Kiosk:
+            } @else {
+              Interaktion:
+            }
             {{ (interaction.progress * 100).toFixed(0) }} %
           </p>
         }
@@ -54,6 +60,14 @@ import { WorldStateService } from './world-state.service';
           (click)="world.interact('bench-south')"
         >
           Auf der südlichen Bank ausruhen
+        </button>
+        <button
+          type="button"
+          data-testid="job-action"
+          [disabled]="!!self.interaction"
+          (click)="world.interact('kiosk-north')"
+        >
+          Am Nord-Kiosk arbeiten (+25 Geld)
         </button>
       }
       <p>Steuerung: WASD oder Pfeiltasten</p>

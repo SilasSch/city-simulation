@@ -196,7 +196,7 @@ export class SimulationService implements OnModuleInit {
       throw new ApplicationError(
         'INTERACTION_OUT_OF_RANGE',
         409,
-        'Move closer to the bench before resting',
+        'Move closer before interacting',
       );
     }
 
@@ -256,7 +256,8 @@ export class SimulationService implements OnModuleInit {
 
     let interaction = null;
     if (
-      state.interactionObjectId === 'bench-south' &&
+      (state.interactionObjectId === 'bench-south' ||
+        state.interactionObjectId === 'kiosk-north') &&
       state.interactionStartedAt &&
       state.interactionEndsAt
     ) {
@@ -334,6 +335,10 @@ export class SimulationService implements OnModuleInit {
       state.interactionEndsAt,
       simulatedNow,
     );
+    const completedMoney = Math.max(
+      MONEY_MIN,
+      state.money + (object?.moneyGain ?? 0),
+    );
 
     await this.prisma.characterWorldState.updateMany({
       where: {
@@ -344,6 +349,7 @@ export class SimulationService implements OnModuleInit {
       data: {
         energy: currentEnergy,
         energyUpdatedAt: simulatedNow,
+        money: completedMoney,
         interactionObjectId: null,
         interactionStartedAt: null,
         interactionEndsAt: null,

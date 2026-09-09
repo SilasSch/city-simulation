@@ -150,7 +150,8 @@ automatisch ausgewählt (ADR 0009); die Auswahl überlebt Server-Neustarts
   materialisiert.
 - Characters haben eine persistente Währung `money` (Start 0, ganzzahlig,
   nie negativ). Nur der Server bucht Änderungen; Clients zeigen den bestätigten
-  Wert. Verdienen und Ausgeben folgen in den v0.5-Job-/Kauf-Tickets.
+  Wert. Am Nord-Kiosk (`kiosk-north`) verdient eine abgeschlossene Job-
+  Interaktion 25 Geld; Ausgeben folgt im Kauf-Ticket.
 - `world-interact` startet an der südlichen Bank eine exklusive,
   entfernungsgeprüfte Rast-Interaktion. Abschluss gibt 30 Energie; Bewegung,
   letzter Disconnect und Kontextverlust brechen sie ab. Tick-Events projizieren

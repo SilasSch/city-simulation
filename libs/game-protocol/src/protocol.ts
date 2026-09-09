@@ -145,6 +145,17 @@ export const WORLD_INTERACTION_OBJECTS = [
     interactionRange: 10,
     durationSimulationSeconds: 300,
     energyGain: 30,
+    moneyGain: 0,
+  },
+  {
+    id: 'kiosk-north',
+    kind: 'kiosk',
+    x: 38,
+    y: 30,
+    interactionRange: 10,
+    durationSimulationSeconds: 180,
+    energyGain: 0,
+    moneyGain: 25,
   },
 ] as const;
 export type WorldInteractionObject = (typeof WORLD_INTERACTION_OBJECTS)[number];
@@ -185,7 +196,7 @@ export const worldDirectionSchema = z.enum(['N', 'E', 'S', 'W']);
 export type WorldDirection = z.infer<typeof worldDirectionSchema>;
 
 export const worldInteractionStateSchema = z.object({
-  objectId: z.literal('bench-south'),
+  objectId: z.enum(['bench-south', 'kiosk-north']),
   startedAt: z.string().datetime({ offset: true }),
   endsAt: z.string().datetime({ offset: true }),
   progress: z.number().min(0).max(1),
@@ -221,7 +232,7 @@ export type WorldMovePayload = z.infer<typeof worldMovePayloadSchema>;
 
 export const WORLD_INTERACT_COMMAND_TYPE = 'world-interact';
 export const worldInteractPayloadSchema = z.object({
-  objectId: z.literal('bench-south'),
+  objectId: z.enum(['bench-south', 'kiosk-north']),
 });
 export type WorldInteractPayload = z.infer<typeof worldInteractPayloadSchema>;
 

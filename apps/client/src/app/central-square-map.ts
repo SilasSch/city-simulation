@@ -115,7 +115,9 @@ export function renderCentralSquare(scene: Phaser.Scene): void {
   map.fillRoundedRect(289, 290, 9, 45, 3);
   map.fillRoundedRect(502, 115, 9, 45, 3);
 
-  const restBench = WORLD_INTERACTION_OBJECTS[0];
+  const restBench = WORLD_INTERACTION_OBJECTS.find(
+    (object) => object.id === 'bench-south',
+  )!;
   const restBenchX = mapX(restBench.x);
   const restBenchY = mapY(restBench.y);
   map.lineStyle(3, 0xfacc15, 0.95);
@@ -127,6 +129,27 @@ export function renderCentralSquare(scene: Phaser.Scene): void {
       fontSize: '10px',
       fontStyle: 'bold',
       stroke: '#3f2d18',
+      strokeThickness: 3,
+    })
+    .setOrigin(0.5)
+    .setDepth(2);
+
+  const jobKiosk = WORLD_INTERACTION_OBJECTS.find(
+    (object) => object.id === 'kiosk-north',
+  )!;
+  const jobX = mapX(jobKiosk.x);
+  const jobY = mapY(jobKiosk.y);
+  map.fillStyle(0x334155, 0.95);
+  map.fillRoundedRect(jobX - 28, jobY - 16, 56, 32, 4);
+  map.lineStyle(3, 0x38bdf8, 0.95);
+  map.strokeRoundedRect(jobX - 28, jobY - 16, 56, 32, 4);
+  scene.add
+    .text(jobX, jobY + 22, 'JOB', {
+      color: '#e0f2fe',
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '10px',
+      fontStyle: 'bold',
+      stroke: '#0f172a',
       strokeThickness: 3,
     })
     .setOrigin(0.5)
