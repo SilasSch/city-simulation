@@ -16,9 +16,7 @@ function waitForReceivedProtocolEvent(
     const timeoutMs = 15_000;
     const timer = setTimeout(() => {
       page.off('websocket', onWebSocket);
-      reject(
-        new Error(`Timed out waiting for protocol event "${eventType}"`),
-      );
+      reject(new Error(`Timed out waiting for protocol event "${eventType}"`));
     }, timeoutMs);
 
     const payloadContainsEvent = (payload: string): boolean =>
