@@ -63,13 +63,23 @@ export type ConnectPayload = z.infer<typeof connectPayloadSchema>;
 
 // --- World (minimaler server-autoritärer Vertical Slice) ---
 
-/** Genau eine Zone und ein gemeinsames Koordinatensystem für diesen Slice. */
-export const WORLD_ZONE_ID = 'central-square' as const;
+/**
+ * Statische Zonen dieses Slices. `central-square` bleibt Default; `market-lane`
+ * ist die zweite Zone (v0.8). Gleiches logisches Koordinatensystem 0..100.
+ * Additive Enum-Erweiterung ohne PROTOCOL_VERSION-Bump (wie bei entity.kind).
+ */
+export const WORLD_ZONE_IDS = ['central-square', 'market-lane'] as const;
+export const WORLD_ZONE_ID = WORLD_ZONE_IDS[0];
+export const MARKET_LANE_ZONE_ID = WORLD_ZONE_IDS[1];
 export const WORLD_COORDINATE_MIN = 0;
 export const WORLD_COORDINATE_MAX = 100;
 export const WORLD_MOVE_STEP = 5;
 
 export const WORLD_SPAWN_POSITION = { x: 50, y: 70 } as const;
+export const MARKET_LANE_SPAWN_POSITION = { x: 50, y: 50 } as const;
+
+export const worldZoneIdSchema = z.enum(WORLD_ZONE_IDS);
+export type WorldZoneId = z.infer<typeof worldZoneIdSchema>;
 
 export interface WorldRectangleCollider {
   readonly id: string;
@@ -137,6 +147,88 @@ export const CENTRAL_SQUARE_COLLIDERS: readonly WorldCollider[] = [
   },
 ] as const;
 
+/**
+ * Einfache Marktgasse: begehbare Mittelgasse, Stände an den Seiten.
+ * Portal-/Art-Feinschliff folgt in #66/#67 — hier nur geteilte Geometrie.
+ */
+export const MARKET_LANE_COLLIDERS: readonly WorldCollider[] = [
+  {
+    id: 'stall-north-west',
+    kind: 'rectangle',
+    minX: 0,
+    minY: 0,
+    maxX: 22,
+    maxY: 22,
+  },
+  {
+    id: 'stall-north-east',
+    kind: 'rectangle',
+    minX: 78,
+    minY: 0,
+    maxX: 100,
+    maxY: 22,
+  },
+  {
+    id: 'stall-south-west',
+    kind: 'rectangle',
+    minX: 0,
+    minY: 78,
+    maxX: 22,
+    maxY: 100,
+  },
+  {
+    id: 'stall-south-east',
+    kind: 'rectangle',
+    minX: 78,
+    minY: 78,
+    maxX: 100,
+    maxY: 100,
+  },
+  {
+    id: 'crate-west',
+    kind: 'rectangle',
+    minX: 28,
+    minY: 44,
+    maxX: 36,
+    maxY: 56,
+  },
+  {
+    id: 'crate-east',
+    kind: 'rectangle',
+    minX: 64,
+    minY: 44,
+    maxX: 72,
+    maxY: 56,
+  },
+] as const;
+
+export const WORLD_ZONE_SPAWNS = {
+  [WORLD_ZONE_ID]: WORLD_SPAWN_POSITION,
+  [MARKET_LANE_ZONE_ID]: MARKET_LANE_SPAWN_POSITION,
+} as const;
+
+export const WORLD_ZONE_COLLIDERS = {
+  [WORLD_ZONE_ID]: CENTRAL_SQUARE_COLLIDERS,
+  [MARKET_LANE_ZONE_ID]: MARKET_LANE_COLLIDERS,
+} as const;
+
+export function worldZoneSpawn(zoneId: WorldZoneId): {
+  readonly x: number;
+  readonly y: number;
+} {
+  return WORLD_ZONE_SPAWNS[zoneId];
+}
+
+export function worldZoneColliders(
+  zoneId: WorldZoneId,
+): readonly WorldCollider[] {
+  return WORLD_ZONE_COLLIDERS[zoneId];
+}
+
+export function worldRoomName(zoneId: WorldZoneId): string {
+  return `zone:${zoneId}`;
+}
+
 export const WORLD_INTERACTION_OBJECTS = [
   {
     id: 'bench-south',
@@ -187,19 +279,12 @@ export function worldInteractionObject(
   return object;
 }
 
-export function isWorldPositionWalkable(x: number, y: number): boolean {
-  if (
-    !Number.isInteger(x) ||
-    !Number.isInteger(y) ||
-    x < WORLD_COORDINATE_MIN ||
-    x > WORLD_COORDINATE_MAX ||
-    y < WORLD_COORDINATE_MIN ||
-    y > WORLD_COORDINATE_MAX
-  ) {
-    return false;
-  }
-
-  return CENTRAL_SQUARE_COLLIDERS.every((collider) => {
+function isClearOfColliders(
+  x: number,
+  y: number,
+  colliders: readonly WorldCollider[],
+): boolean {
+  return colliders.every((collider) => {
     if (collider.kind === 'rectangle') {
       return !(
         x >= collider.minX &&
@@ -215,8 +300,28 @@ export function isWorldPositionWalkable(x: number, y: number): boolean {
   });
 }
 
-export const worldZoneIdSchema = z.literal(WORLD_ZONE_ID);
-export type WorldZoneId = z.infer<typeof worldZoneIdSchema>;
+/**
+ * Begehbarkeit in einer Zone. `zoneId` defaultet auf `central-square`, damit
+ * bestehende Central-Square-Caller (NPC-Patrol) unverändert bleiben.
+ */
+export function isWorldPositionWalkable(
+  x: number,
+  y: number,
+  zoneId: WorldZoneId = WORLD_ZONE_ID,
+): boolean {
+  if (
+    !Number.isInteger(x) ||
+    !Number.isInteger(y) ||
+    x < WORLD_COORDINATE_MIN ||
+    x > WORLD_COORDINATE_MAX ||
+    y < WORLD_COORDINATE_MIN ||
+    y > WORLD_COORDINATE_MAX
+  ) {
+    return false;
+  }
+
+  return isClearOfColliders(x, y, worldZoneColliders(zoneId));
+}
 
 export const worldDirectionSchema = z.enum(['N', 'E', 'S', 'W']);
 export type WorldDirection = z.infer<typeof worldDirectionSchema>;

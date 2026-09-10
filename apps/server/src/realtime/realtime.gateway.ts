@@ -21,6 +21,8 @@ import {
   WORLD_MOVE_COMMAND_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
+  WORLD_ZONE_ID,
+  WORLD_ZONE_IDS,
   type ProtocolErrorCode,
   type ProtocolErrorPayload,
   createMessage,
@@ -32,7 +34,7 @@ import { SessionSocketRegistry } from '../auth/session-socket-registry.service';
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal';
 import { ApplicationError } from '../shared/application-error';
 import { SimulationService } from '../simulation/simulation.service';
-import { WORLD_ROOM, type EnteredWorldContext } from '../world/world.constants';
+import { worldRoom, type EnteredWorldContext } from '../world/world.constants';
 import {
   WorldPresenceService,
   type PresenceDeparture,
@@ -208,7 +210,10 @@ export class RealtimeGateway
         case WORLD_ENTER_COMMAND_TYPE: {
           // Erst ein erfolgreicher Eintritt darf den Socket-Kontext setzen.
           // Ein fehlgeschlagener Re-Enter lässt keinen alten Kontext zurück.
-          await client.leave(WORLD_ROOM);
+          const previousZone = socketData.world?.zoneId;
+          if (previousZone) {
+            await client.leave(worldRoom(previousZone));
+          }
           const departure = this.presence.leave(client.id);
           if (departure?.lastSocket) {
             await this.simulation.abortInteraction(departure.characterId);
@@ -230,8 +235,13 @@ export class RealtimeGateway
             );
           }
 
-          const firstSocketForCharacter = this.presence.enter(client.id, self);
-          await client.join(WORLD_ROOM);
+          const room = worldRoom(entry.context.zoneId);
+          const firstSocketForCharacter = this.presence.enter(
+            client.id,
+            self,
+            entry.context.zoneId,
+          );
+          await client.join(room);
           socketData.world = entry.context;
           client.emit(
             PROTOCOL_CHANNEL,
@@ -239,14 +249,14 @@ export class RealtimeGateway
               WORLD_SNAPSHOT_EVENT_TYPE,
               {
                 ...entry.snapshot,
-                entities: this.presence.entities(),
+                entities: this.presence.entities(entry.context.zoneId),
               },
               parsed.envelope.requestId,
             ),
           );
           if (firstSocketForCharacter) {
             client
-              .to(WORLD_ROOM)
+              .to(room)
               .emit(
                 PROTOCOL_CHANNEL,
                 createMessage(WORLD_ENTITY_JOINED_EVENT_TYPE, { entity: self }),
@@ -269,7 +279,7 @@ export class RealtimeGateway
           );
           if (outcome.kind === 'object') {
             this.presence.update(outcome.entity);
-            client.nsp.to(WORLD_ROOM).emit(
+            client.nsp.to(worldRoom(socketData.world.zoneId)).emit(
               PROTOCOL_CHANNEL,
               createMessage(WORLD_ENTITY_UPDATED_EVENT_TYPE, {
                 entity: outcome.entity,
@@ -309,7 +319,7 @@ export class RealtimeGateway
           );
           this.presence.update(entity);
           client.nsp
-            .to(WORLD_ROOM)
+            .to(worldRoom(socketData.world.zoneId))
             .emit(
               PROTOCOL_CHANNEL,
               createMessage(
@@ -324,7 +334,10 @@ export class RealtimeGateway
     } catch (error) {
       if (error instanceof ApplicationError) {
         if (error.code === 'WORLD_NOT_ENTERED') {
-          await client.leave(WORLD_ROOM);
+          const zone = socketData.world?.zoneId;
+          if (zone) {
+            await client.leave(worldRoom(zone));
+          }
           const departure = this.presence.leave(client.id);
           if (departure?.lastSocket) {
             await this.simulation.abortInteraction(departure.characterId);
@@ -362,16 +375,20 @@ export class RealtimeGateway
     try {
       if (characterIds.length > 0) {
         const tick = await this.simulation.tick(characterIds);
-        server
-          .to(WORLD_ROOM)
-          .emit(
-            PROTOCOL_CHANNEL,
-            createMessage(SIMULATION_CLOCK_EVENT_TYPE, tick.clock),
-          );
+        for (const zoneId of WORLD_ZONE_IDS) {
+          server
+            .to(worldRoom(zoneId))
+            .emit(
+              PROTOCOL_CHANNEL,
+              createMessage(SIMULATION_CLOCK_EVENT_TYPE, tick.clock),
+            );
+        }
         for (const entity of tick.entities) {
           this.presence.update(entity);
+          const zoneId = this.presence.zoneOf(entity.characterId);
+          if (!zoneId) continue;
           server
-            .to(WORLD_ROOM)
+            .to(worldRoom(zoneId))
             .emit(
               PROTOCOL_CHANNEL,
               createMessage(WORLD_ENTITY_UPDATED_EVENT_TYPE, { entity }),
@@ -381,7 +398,7 @@ export class RealtimeGateway
 
       for (const entity of movedNpcs) {
         server
-          .to(WORLD_ROOM)
+          .to(worldRoom(WORLD_ZONE_ID))
           .emit(
             PROTOCOL_CHANNEL,
             createMessage(WORLD_ENTITY_UPDATED_EVENT_TYPE, { entity }),
@@ -401,7 +418,7 @@ export class RealtimeGateway
   ): void {
     if (!departure?.lastSocket) return;
 
-    client.nsp.to(WORLD_ROOM).emit(
+    client.nsp.to(worldRoom(departure.zoneId)).emit(
       PROTOCOL_CHANNEL,
       createMessage(WORLD_ENTITY_LEFT_EVENT_TYPE, {
         characterId: departure.characterId,

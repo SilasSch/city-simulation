@@ -70,6 +70,8 @@ export class WorldStateService {
       this.clearWorld();
 
       if (nextKey) {
+        // Default remains central-square; market-lane enter/portal is #66.
+        // Flip to MARKET_LANE_ZONE_ID for a manual smoke enter.
         this.realtime.sendWorldEnter(WORLD_ZONE_ID);
       }
     });

@@ -3,11 +3,11 @@ import {
   NPC_INTERACT_PAUSE_TICKS,
   NPC_INTERACTION_RANGE,
   WORLD_MOVE_STEP,
-  WORLD_SPAWN_POSITION,
-  WORLD_ZONE_ID,
+  WORLD_ZONE_IDS,
   centralSquareNpcGreeting,
   isNpcWorldInteractPayload,
   isWorldPositionWalkable,
+  worldZoneSpawn,
   type WorldDirection,
   type WorldEntity,
   type WorldInteractPayload,
@@ -72,11 +72,12 @@ export class WorldService {
     zoneId: WorldZoneId,
   ): Promise<WorldEntry> {
     // zoneId ist bereits durch game-protocol validiert; der explizite Check
-    // schützt direkte Service-Aufrufer und hält die statische Zone sichtbar.
-    if (zoneId !== WORLD_ZONE_ID) {
+    // schützt direkte Service-Aufrufer vor unbekannten Zonen.
+    if (!(WORLD_ZONE_IDS as readonly string[]).includes(zoneId)) {
       throw new ApplicationError('VALIDATION_ERROR', 400, 'Unknown world zone');
     }
 
+    const spawn = worldZoneSpawn(zoneId);
     const simulatedNow = new Date(
       this.simulation.clockSnapshot().simulatedTime,
     );
@@ -93,21 +94,18 @@ export class WorldService {
         );
       }
 
+      const previous = await this.worlds.findState(selected.id, tx);
       const state = await this.worlds.enter(
         selected.id,
         zoneId,
-        WORLD_SPAWN_POSITION.x,
-        WORLD_SPAWN_POSITION.y,
+        spawn.x,
+        spawn.y,
         simulatedNow,
         tx,
       );
-      if (!isWorldPositionWalkable(state.x, state.y)) {
-        await this.worlds.relocate(
-          selected.id,
-          WORLD_SPAWN_POSITION.x,
-          WORLD_SPAWN_POSITION.y,
-          tx,
-        );
+      const switchedZone = previous !== null && previous.zoneId !== zoneId;
+      if (switchedZone || !isWorldPositionWalkable(state.x, state.y, zoneId)) {
+        await this.worlds.relocate(selected.id, spawn.x, spawn.y, tx);
       }
       return { characterId: selected.id, zoneId } satisfies EnteredWorldContext;
     });
@@ -233,11 +231,11 @@ export class WorldService {
         }
 
         const position = nextPosition(state.x, state.y, direction);
-        if (!isWorldPositionWalkable(position.x, position.y)) {
+        if (!isWorldPositionWalkable(position.x, position.y, context.zoneId)) {
           throw new ApplicationError(
             'WORLD_MOVE_BLOCKED',
             409,
-            'Movement is blocked by the Central Square map',
+            'Movement is blocked by the zone map',
           );
         }
         const updated = await this.worlds.tryMove(

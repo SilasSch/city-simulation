@@ -1,7 +1,7 @@
 # 0010: Minimaler serverautoritärer World-Slice in statischer Zone
 
-- **Status:** Akzeptiert und um gemeinsame Geometrie sowie Live-Präsenz erweitert
-- **Datum:** 2026-08-12
+- **Status:** Akzeptiert und um gemeinsame Geometrie, Live-Präsenz sowie Multi-Zone-Start erweitert
+- **Datum:** 2026-08-12 (ergänzt 2026-09-10)
 
 ## Kontext
 
@@ -12,11 +12,14 @@ abdecken, ohne bereits Wirtschaft, NPCs oder dynamische Zonen einzuführen.
 
 ## Entscheidung
 
-- Es gibt genau eine statische Zone `central-square` mit ganzzahligen
-  Koordinaten von 0 bis 100, Spawnpunkt (50, 70) und einer Schrittweite von 5.
-- Client und Server importieren dieselben code-nativen Collider für vier
-  Gebäude und den zentralen Brunnen. Nur der Server entscheidet, ob eine
-  Zielposition begehbar ist.
+- Es gibt statische Zonen mit gemeinsamem logischem Koordinatensystem 0–100 und
+  Schrittweite 5. Startzone bleibt `central-square` (Spawn 50, 70); ab v0.8
+  existiert zusätzlich `market-lane` (Spawn 50, 50, schlichte Stände/Gasse).
+  `world-enter` akzeptiert beide; Presence/Snapshot sind pro Zone
+  (`zone:<id>`). Portal-Transition folgt separat (#66).
+- Client und Server importieren dieselben code-nativen Collider je Zone. Nur
+  der Server entscheidet, ob eine Zielposition in der aktuellen Zone begehbar
+  ist. NPCs bleiben vorerst an `central-square` gebunden.
 - `world-enter` erfordert einen serverseitig ausgewählten Character. Eine
   persistierte Position, die nach einer Kartenänderung nicht mehr begehbar ist,
   wird atomar zum Spawnpunkt verschoben.
@@ -58,4 +61,5 @@ abdecken, ohne bereits Wirtschaft, NPCs oder dynamische Zonen einzuführen.
 - Presence ist für den aktuellen Single-Server-Meilenstein prozesslokal. Bei
   horizontaler Skalierung benötigt sie einen gemeinsamen Pub/Sub-Layer.
 - Der Slice beweist Eintritt, Kollision, Bewegung, Persistenz, Broadcast,
-  Mehrfach-Tab-Presence und Reconnect, enthält aber bewusst nur eine Zone.
+  Mehrfach-Tab-Presence und Reconnect. Multi-Zone beginnt mit zwei Katalog-
+  Zonen und zonenscopierter Presence; Transitions und Kartenkunst folgen.
