@@ -75,20 +75,25 @@ const TREES: readonly [number, number][] = [
 export function renderCentralSquare(scene: Phaser.Scene): void {
   const map = scene.add.graphics().setDepth(0);
 
-  // Park perimeter and the four broad pedestrian approaches.
-  map.fillStyle(0x6d8b61);
+  // Park lawn (cooler green) vs warm plaza — stronger zone separation.
+  map.fillStyle(0x5f7f54);
   map.fillRoundedRect(40, 28, 720, 394, 16);
-  map.fillStyle(0xc6b897);
+  map.fillStyle(0x4e6b45, 0.55);
+  map.fillRoundedRect(52, 40, 696, 370, 14);
+
+  // Broad pedestrian approaches (lighter sand).
+  map.fillStyle(0xd2c2a0);
   map.fillRect(352, 28, 96, 394);
   map.fillRect(40, 177, 720, 96);
 
-  // The stone civic plaza, framed by a warm cobble border.
-  map.fillStyle(0xa98f6e);
+  // Civic plaza with cobble hatching.
+  map.fillStyle(0x8f7558);
   map.fillRoundedRect(244, 112, 312, 226, 24);
-  map.fillStyle(0xd4c8aa);
+  map.fillStyle(0xe0d3b6);
   map.fillRoundedRect(254, 122, 292, 206, 20);
-  map.lineStyle(2, 0xb9aa89, 0.65);
+  map.lineStyle(2, 0xb9aa89, 0.7);
   for (let y = 142; y < 322; y += 24) map.lineBetween(260, y, 540, y);
+  for (let x = 280; x < 530; x += 28) map.lineBetween(x, 130, x, 320);
 
   for (const building of BUILDINGS) drawBuilding(map, building);
   for (const [x, y] of TREES) drawTree(map, x, y);
@@ -115,66 +120,82 @@ export function renderCentralSquare(scene: Phaser.Scene): void {
   map.fillRoundedRect(289, 290, 9, 45, 3);
   map.fillRoundedRect(502, 115, 9, 45, 3);
 
-  const restBench = WORLD_INTERACTION_OBJECTS.find(
-    (object) => object.id === 'bench-south',
-  )!;
-  const restBenchX = mapX(restBench.x);
-  const restBenchY = mapY(restBench.y);
-  map.lineStyle(3, 0xfacc15, 0.95);
-  map.strokeRoundedRect(restBenchX - 31, restBenchY - 9, 62, 18, 5);
-  scene.add
-    .text(restBenchX, restBenchY + 13, 'REST', {
-      color: '#fef3c7',
-      fontFamily: 'system-ui, sans-serif',
-      fontSize: '10px',
-      fontStyle: 'bold',
-      stroke: '#3f2d18',
-      strokeThickness: 3,
-    })
-    .setOrigin(0.5)
-    .setDepth(2);
+  const rangeToPixels = (range: number): number =>
+    (range / WORLD_COORDINATE_MAX) * MAP_CONTENT.width;
 
-  const jobKiosk = WORLD_INTERACTION_OBJECTS.find(
-    (object) => object.id === 'kiosk-north',
-  )!;
-  const jobX = mapX(jobKiosk.x);
-  const jobY = mapY(jobKiosk.y);
-  map.fillStyle(0x334155, 0.95);
-  map.fillRoundedRect(jobX - 28, jobY - 16, 56, 32, 4);
-  map.lineStyle(3, 0x38bdf8, 0.95);
-  map.strokeRoundedRect(jobX - 28, jobY - 16, 56, 32, 4);
-  scene.add
-    .text(jobX, jobY + 22, 'JOB', {
-      color: '#e0f2fe',
-      fontFamily: 'system-ui, sans-serif',
-      fontSize: '10px',
-      fontStyle: 'bold',
-      stroke: '#0f172a',
-      strokeThickness: 3,
-    })
-    .setOrigin(0.5)
-    .setDepth(2);
+  const drawPoi = (
+    objectId: (typeof WORLD_INTERACTION_OBJECTS)[number]['id'],
+    fill: number,
+    stroke: number,
+    label: string,
+    labelColor: string,
+    labelStroke: string,
+    width: number,
+    height: number,
+  ): void => {
+    const object = WORLD_INTERACTION_OBJECTS.find(
+      (candidate) => candidate.id === objectId,
+    )!;
+    const x = mapX(object.x);
+    const y = mapY(object.y);
+    const radius = rangeToPixels(object.interactionRange);
+    map.lineStyle(2, stroke, 0.28);
+    map.strokeCircle(x, y, radius);
+    map.fillStyle(fill, 0.96);
+    map.fillRoundedRect(x - width / 2, y - height / 2, width, height, 5);
+    map.lineStyle(3, stroke, 0.95);
+    map.strokeRoundedRect(x - width / 2, y - height / 2, width, height, 5);
+    scene.add
+      .text(x, y + height / 2 + 12, label, {
+        color: labelColor,
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '11px',
+        fontStyle: 'bold',
+        stroke: labelStroke,
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setDepth(2);
+  };
 
-  const snackStall = WORLD_INTERACTION_OBJECTS.find(
-    (object) => object.id === 'snack-east',
-  )!;
-  const snackX = mapX(snackStall.x);
-  const snackY = mapY(snackStall.y);
-  map.fillStyle(0x7c2d12, 0.95);
-  map.fillRoundedRect(snackX - 26, snackY - 14, 52, 28, 4);
-  map.lineStyle(3, 0xfbbf24, 0.95);
-  map.strokeRoundedRect(snackX - 26, snackY - 14, 52, 28, 4);
-  scene.add
-    .text(snackX, snackY + 20, 'SHOP', {
-      color: '#fff7ed',
-      fontFamily: 'system-ui, sans-serif',
-      fontSize: '10px',
-      fontStyle: 'bold',
-      stroke: '#431407',
-      strokeThickness: 3,
-    })
-    .setOrigin(0.5)
-    .setDepth(2);
+  drawPoi(
+    'bench-south',
+    0x604b38,
+    0xfacc15,
+    'REST',
+    '#fef3c7',
+    '#3f2d18',
+    62,
+    18,
+  );
+  drawPoi(
+    'kiosk-north',
+    0x334155,
+    0x38bdf8,
+    'JOB',
+    '#e0f2fe',
+    '#0f172a',
+    56,
+    32,
+  );
+  drawPoi(
+    'snack-east',
+    0x7c2d12,
+    0xfbbf24,
+    'SHOP',
+    '#fff7ed',
+    '#431407',
+    52,
+    28,
+  );
+
+  // Soft wayfinding ticks from plaza center toward POIs (spatial cue only).
+  const plazaX = mapX(50);
+  const plazaY = mapY(58);
+  map.lineStyle(3, 0xf8fafc, 0.22);
+  for (const object of WORLD_INTERACTION_OBJECTS) {
+    map.lineBetween(plazaX, plazaY, mapX(object.x), mapY(object.y));
+  }
 
   scene.add
     .text(400, 72, 'CENTRAL SQUARE', {

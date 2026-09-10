@@ -108,7 +108,7 @@ describe('first simulation loop (integration)', () => {
     const entry = await world.enter(principal, WORLD_ZONE_ID);
     await prisma.characterWorldState.update({
       where: { characterId: entry.context.characterId },
-      data: { x: 38, y: 30, money: 0 },
+      data: { x: 40, y: 42, money: 0 },
     });
 
     const active = await world.interact(
@@ -138,7 +138,7 @@ describe('first simulation loop (integration)', () => {
     const entry = await world.enter(principal, WORLD_ZONE_ID);
     await prisma.characterWorldState.update({
       where: { characterId: entry.context.characterId },
-      data: { x: 70, y: 50, money: 10, energy: 50 },
+      data: { x: 68, y: 55, money: 10, energy: 50 },
     });
 
     await expect(

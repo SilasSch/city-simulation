@@ -152,8 +152,8 @@ export const WORLD_INTERACTION_OBJECTS = [
   {
     id: 'kiosk-north',
     kind: 'kiosk',
-    x: 38,
-    y: 30,
+    x: 40,
+    y: 42,
     interactionRange: 10,
     durationSimulationSeconds: 180,
     energyGain: 0,
@@ -163,8 +163,8 @@ export const WORLD_INTERACTION_OBJECTS = [
   {
     id: 'snack-east',
     kind: 'shop',
-    x: 70,
-    y: 50,
+    x: 68,
+    y: 55,
     interactionRange: 10,
     durationSimulationSeconds: 0,
     energyGain: 20,
