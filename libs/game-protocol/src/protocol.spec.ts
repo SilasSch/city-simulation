@@ -10,6 +10,8 @@ import {
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
   WORLD_ZONE_ID,
+  MARKET_LANE_ZONE_ID,
+  MARKET_LANE_SPAWN_POSITION,
   CENTRAL_SQUARE_NPCS,
   CENTRAL_SQUARE_NPC_GREETINGS,
   CENTRAL_SQUARE_NPC_PATROLS,
@@ -24,7 +26,9 @@ import {
   mergeZoneNpcEntities,
   protocolEnvelopeSchema,
   worldEntitySchema,
+  worldEnterPayloadSchema,
   worldSnapshotPayloadSchema,
+  worldZoneIdSchema,
 } from './protocol';
 import { parseIncomingMessage, parseServerMessage } from './parse';
 
@@ -89,6 +93,15 @@ describe('protocol schemas', () => {
     expect(isWorldPositionWalkable(-5, 50)).toBe(false);
     expect(isWorldPositionWalkable(25, 10)).toBe(false);
     expect(isWorldPositionWalkable(50, 50)).toBe(false);
+    expect(
+      isWorldPositionWalkable(
+        MARKET_LANE_SPAWN_POSITION.x,
+        MARKET_LANE_SPAWN_POSITION.y,
+        MARKET_LANE_ZONE_ID,
+      ),
+    ).toBe(true);
+    expect(isWorldPositionWalkable(10, 10, MARKET_LANE_ZONE_ID)).toBe(false);
+    expect(isWorldPositionWalkable(50, 50, MARKET_LANE_ZONE_ID)).toBe(true);
   });
 
   it('validates complete world snapshots', () => {
@@ -143,9 +156,19 @@ describe('protocol schemas', () => {
         }),
       ]),
     );
-    expect(mergeZoneNpcEntities('other-zone', [WORLD_ENTITY])).toEqual([
+    expect(mergeZoneNpcEntities(MARKET_LANE_ZONE_ID, [WORLD_ENTITY])).toEqual([
       WORLD_ENTITY,
     ]);
+  });
+
+  it('accepts market-lane as a world zone id and rejects unknowns', () => {
+    expect(worldZoneIdSchema.safeParse(WORLD_ZONE_ID).success).toBe(true);
+    expect(worldZoneIdSchema.safeParse(MARKET_LANE_ZONE_ID).success).toBe(true);
+    expect(worldZoneIdSchema.safeParse('unknown-zone').success).toBe(false);
+    expect(
+      worldEnterPayloadSchema.safeParse({ zoneId: MARKET_LANE_ZONE_ID })
+        .success,
+    ).toBe(true);
   });
 
   it('prefers live NPC positions over the catalog when merging', () => {

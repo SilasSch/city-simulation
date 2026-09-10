@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import {
-  mergeZoneNpcEntities,
   WORLD_ZONE_ID,
+  mergeZoneNpcEntities,
   type WorldEntity,
+  type WorldZoneId,
 } from '@city/game-protocol';
 import {
   createNpcPatrolRuntimes,
@@ -12,20 +13,23 @@ import {
 
 interface CharacterPresence {
   entity: WorldEntity;
+  zoneId: WorldZoneId;
   socketIds: Set<string>;
 }
 
 export interface PresenceDeparture {
   characterId: string;
+  zoneId: WorldZoneId;
   lastSocket: boolean;
 }
 
 /**
  * Prozesslokale Live-Presence für die einzelne Serverinstanz des aktuellen
  * Deployment-Milestones. Persistente Positionen bleiben im Repository; diese
- * Registry entscheidet nur, welche Characters gerade sichtbar sein sollen.
- * Zonen-NPCs sind session-stabil, server-tick-bewegt und immer Teil der
- * sichtbaren Entity-Liste — Clients können NPC-Positionen nicht setzen.
+ * Registry entscheidet nur, welche Characters in welcher Zone gerade sichtbar
+ * sein sollen. Zonen-NPCs (derzeit nur central-square) sind session-stabil,
+ * server-tick-bewegt und immer Teil der sichtbaren Entity-Liste ihrer Zone —
+ * Clients können NPC-Positionen nicht setzen.
  */
 @Injectable()
 export class WorldPresenceService {
@@ -34,13 +38,14 @@ export class WorldPresenceService {
   private readonly npcRuntimes: Map<string, NpcPatrolRuntime> =
     createNpcPatrolRuntimes();
 
-  enter(socketId: string, entity: WorldEntity): boolean {
+  enter(socketId: string, entity: WorldEntity, zoneId: WorldZoneId): boolean {
     if (entity.kind === 'npc') {
       return false;
     }
     const existing = this.presences.get(entity.characterId);
     if (existing) {
       existing.entity = entity;
+      existing.zoneId = zoneId;
       existing.socketIds.add(socketId);
       this.characterBySocket.set(socketId, entity.characterId);
       return false;
@@ -48,6 +53,7 @@ export class WorldPresenceService {
 
     this.presences.set(entity.characterId, {
       entity,
+      zoneId,
       socketIds: new Set([socketId]),
     });
     this.characterBySocket.set(socketId, entity.characterId);
@@ -60,15 +66,18 @@ export class WorldPresenceService {
 
     this.characterBySocket.delete(socketId);
     const presence = this.presences.get(characterId);
-    if (!presence) return { characterId, lastSocket: true };
+    if (!presence) {
+      return { characterId, zoneId: WORLD_ZONE_ID, lastSocket: true };
+    }
 
+    const zoneId = presence.zoneId;
     presence.socketIds.delete(socketId);
     if (presence.socketIds.size > 0) {
-      return { characterId, lastSocket: false };
+      return { characterId, zoneId, lastSocket: false };
     }
 
     this.presences.delete(characterId);
-    return { characterId, lastSocket: true };
+    return { characterId, zoneId, lastSocket: true };
   }
 
   update(entity: WorldEntity): void {
@@ -76,6 +85,11 @@ export class WorldPresenceService {
     if (entity.kind === 'npc') return;
     const presence = this.presences.get(entity.characterId);
     if (presence) presence.entity = entity;
+  }
+
+  /** Zone of a present character, or null if offline. */
+  zoneOf(characterId: string): WorldZoneId | null {
+    return this.presences.get(characterId)?.zoneId ?? null;
   }
 
   /** Live NPC entity by characterId, or null if unknown. */
@@ -101,14 +115,19 @@ export class WorldPresenceService {
     return tickNpcPatrols(this.npcRuntimes);
   }
 
-  /** Sichtbare Entities der Zone inkl. live NPC-Positionen. */
-  entities(): WorldEntity[] {
-    const live = [...this.presences.values()].map(({ entity }) => entity);
-    const npcs = [...this.npcRuntimes.values()].map(({ entity }) => entity);
-    return mergeZoneNpcEntities(WORLD_ZONE_ID, [...live, ...npcs]);
+  /** Sichtbare Entities einer Zone inkl. live NPC-Positionen (nur central-square). */
+  entities(zoneId: WorldZoneId): WorldEntity[] {
+    const live = [...this.presences.values()]
+      .filter((presence) => presence.zoneId === zoneId)
+      .map(({ entity }) => entity);
+    const npcs =
+      zoneId === WORLD_ZONE_ID
+        ? [...this.npcRuntimes.values()].map(({ entity }) => entity)
+        : [];
+    return mergeZoneNpcEntities(zoneId, [...live, ...npcs]);
   }
 
-  /** Nur spielergebundene Presence-IDs (für Simulationsticks). */
+  /** Nur spielergebundene Presence-IDs (für Simulationsticks, alle Zonen). */
   characterIds(): string[] {
     return [...this.presences.keys()].sort();
   }

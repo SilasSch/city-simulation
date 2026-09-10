@@ -17,6 +17,8 @@ import {
   WORLD_MOVE_COMMAND_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
+  MARKET_LANE_SPAWN_POSITION,
+  MARKET_LANE_ZONE_ID,
   WORLD_ZONE_ID,
   type ProtocolMessage,
   createMessage,
@@ -124,11 +126,14 @@ describe('World via RealtimeGateway (integration)', () => {
     });
   }
 
-  function enter(socket: Socket): Promise<ProtocolMessage<unknown>> {
+  function enter(
+    socket: Socket,
+    zoneId: typeof WORLD_ZONE_ID | typeof MARKET_LANE_ZONE_ID = WORLD_ZONE_ID,
+  ): Promise<ProtocolMessage<unknown>> {
     const response = nextMessage(socket);
     socket.emit(
       PROTOCOL_CHANNEL,
-      createMessage(WORLD_ENTER_COMMAND_TYPE, { zoneId: WORLD_ZONE_ID }),
+      createMessage(WORLD_ENTER_COMMAND_TYPE, { zoneId }),
     );
     return response;
   }
@@ -301,5 +306,33 @@ describe('World via RealtimeGateway (integration)', () => {
     await moved;
 
     expect(resolvePrincipal).toHaveBeenCalledTimes(1);
+  });
+
+  it('enters market-lane with spawn snapshot and no NPCs', async () => {
+    const player = await createPlayer('market-lane@example.com');
+    const { socket, connected } = connect(player.cookie);
+    await connected;
+
+    const response = await enter(socket, MARKET_LANE_ZONE_ID);
+    expect(response.type).toBe(WORLD_SNAPSHOT_EVENT_TYPE);
+    const snapshot = worldSnapshotPayloadSchema.parse(response.payload);
+    expect(snapshot.zoneId).toBe(MARKET_LANE_ZONE_ID);
+    expect(snapshot.selfCharacterId).toBe(player.characterId);
+    const self = snapshot.entities.find(
+      (entity) => entity.characterId === player.characterId,
+    );
+    expect(self).toMatchObject({
+      ...MARKET_LANE_SPAWN_POSITION,
+      kind: 'character',
+      name: 'Ayla',
+    });
+    expect(snapshot.entities.every((entity) => entity.kind !== 'npc')).toBe(
+      true,
+    );
+
+    const stored = await prisma.characterWorldState.findUniqueOrThrow({
+      where: { characterId: player.characterId! },
+    });
+    expect(stored.zoneId).toBe(MARKET_LANE_ZONE_ID);
   });
 });

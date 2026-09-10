@@ -1,7 +1,12 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { WORLD_SPAWN_POSITION, WORLD_ZONE_ID } from '@city/game-protocol';
+import {
+  MARKET_LANE_SPAWN_POSITION,
+  MARKET_LANE_ZONE_ID,
+  WORLD_SPAWN_POSITION,
+  WORLD_ZONE_ID,
+} from '@city/game-protocol';
 import { AppModule } from '../app.module';
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal';
 import { AuthService } from '../auth/auth.service';
@@ -166,5 +171,55 @@ describe('WorldService (integration)', () => {
     await expect(
       world.move(principal, entry.context, 'E'),
     ).rejects.toMatchObject({ code: 'WORLD_NOT_ENTERED' });
+  });
+
+  it('enters market-lane at its spawn without central-square NPCs', async () => {
+    const principal = await playerWithCharacter('market@example.com');
+
+    const entry = await world.enter(principal, MARKET_LANE_ZONE_ID);
+    expect(entry.context.zoneId).toBe(MARKET_LANE_ZONE_ID);
+    expect(entry.snapshot.zoneId).toBe(MARKET_LANE_ZONE_ID);
+    const self = entry.snapshot.entities.find(
+      (entity) => entity.characterId === entry.snapshot.selfCharacterId,
+    );
+    expect(self).toMatchObject({
+      ...MARKET_LANE_SPAWN_POSITION,
+      kind: 'character',
+      name: 'Ayla',
+    });
+    expect(
+      entry.snapshot.entities.every((entity) => entity.kind !== 'npc'),
+    ).toBe(true);
+
+    const stored = await prisma.characterWorldState.findUniqueOrThrow({
+      where: { characterId: entry.context.characterId },
+    });
+    expect(stored.zoneId).toBe(MARKET_LANE_ZONE_ID);
+  });
+
+  it('rejects unknown zones and relocates when switching into market-lane', async () => {
+    const principal = await playerWithCharacter('switch-zone@example.com');
+    const square = await world.enter(principal, WORLD_ZONE_ID);
+    await world.move(principal, square.context, 'E');
+
+    await expect(
+      world.enter(principal, 'unknown-zone' as typeof WORLD_ZONE_ID),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+
+    const lane = await world.enter(principal, MARKET_LANE_ZONE_ID);
+    expect(lane.snapshot.zoneId).toBe(MARKET_LANE_ZONE_ID);
+    expect(
+      lane.snapshot.entities.find(
+        (entity) => entity.characterId === lane.context.characterId,
+      ),
+    ).toMatchObject(MARKET_LANE_SPAWN_POSITION);
+
+    const stored = await prisma.characterWorldState.findUniqueOrThrow({
+      where: { characterId: lane.context.characterId },
+    });
+    expect(stored).toMatchObject({
+      zoneId: MARKET_LANE_ZONE_ID,
+      ...MARKET_LANE_SPAWN_POSITION,
+    });
   });
 });

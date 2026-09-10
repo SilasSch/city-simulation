@@ -1,10 +1,12 @@
-import { WORLD_ZONE_ID } from '@city/game-protocol';
+import { worldRoomName, type WorldZoneId } from '@city/game-protocol';
 
-/** Socket.IO-Raum der einzigen statischen Zone dieses Vertical Slices. */
-export const WORLD_ROOM = `zone:${WORLD_ZONE_ID}`;
+/** Socket.IO-Raumname für eine Zone (`zone:<id>`). */
+export function worldRoom(zoneId: WorldZoneId): string {
+  return worldRoomName(zoneId);
+}
 
 /** Serververwalteter Weltkontext einer authentifizierten Socket-Verbindung. */
 export interface EnteredWorldContext {
   characterId: string;
-  zoneId: typeof WORLD_ZONE_ID;
+  zoneId: WorldZoneId;
 }

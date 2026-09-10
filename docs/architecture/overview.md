@@ -130,12 +130,14 @@ Der erste erstellte Character eines Profils wird in derselben Transaktion
 automatisch ausgewählt (ADR 0009); die Auswahl überlebt Server-Neustarts
 (persistierte `selectedCharacterId`).
 
-## Central Square und Simulationsloop (ADR 0010 und 0011)
+## Central Square, Market Lane und Simulationsloop (ADR 0010 und 0011)
 
-- `central-square` verwendet ein gemeinsames logisches Koordinatensystem
-  (0–100), Spawn (50, 70), Schrittweite 5 und code-native Collider für vier
-  Gebäude und den Brunnen. Client und Server importieren dieselben Geometriedaten;
-  allein der Server entscheidet, ob ein Ziel begehbar ist.
+- Zonen teilen ein logisches Koordinatensystem (0–100) und Schrittweite 5.
+  `central-square` (Spawn 50, 70, Gebäude/Brunnen) ist die Startzone;
+  `market-lane` (Spawn 50, 50, Stände entlang einer Gasse) ist die zweite
+  Zone. Client und Server importieren dieselben Geometriedaten je Zone;
+  allein der Server entscheidet, ob ein Ziel begehbar ist. Presence und
+  Snapshot sind pro `zone:<id>` gescoped; NPCs nur auf `central-square`.
 - Ungültig gewordene persistierte Positionen werden beim Eintritt zum Spawn
   repariert. Compare-and-Update über die Revision serialisiert konkurrierende
   Bewegungen; blockierte Bewegung schreibt nichts.

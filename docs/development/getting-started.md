@@ -36,7 +36,7 @@ Erwartung:
 2. **Character erstellen** — der erste Character wird automatisch ausgewählt
    (ADR 0009). Weitere Characters können angelegt und ausgewählt werden.
 3. **Welt betreten:** Sobald Session, WebSocket und Auswahl bereit sind, sendet
-   der Client `world-enter` für `central-square` und rendert den Snapshot.
+   der Client `world-enter` für `central-square` (Default; `market-lane` existiert im Protokoll) und rendert den Snapshot.
 4. **Bewegen:** WASD oder Pfeiltasten senden Richtungs-Commands. Collider
    blockieren Gebäude, Brunnen und Zonengrenzen serverseitig; der Marker bewegt
    sich erst nach dem persistierten Serverevent.
