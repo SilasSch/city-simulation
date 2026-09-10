@@ -76,20 +76,32 @@ const TREES: readonly [number, number][] = [
 export function renderCentralSquare(scene: Phaser.Scene): void {
   ensureCentralSquareTextures(scene);
   const map = scene.add.graphics().setDepth(2);
+  const textured = scene.textures.exists('cs-grass');
 
   // Soft frame behind tiled world.
   map.fillStyle(0x243528);
   map.fillRoundedRect(32, 20, 736, 410, 18);
 
   // Tiled lawn, paths, plaza (art pass — not flat debug fills).
-  scene.add.tileSprite(400, 225, 720, 394, 'cs-grass').setDepth(0);
-  scene.add.tileSprite(400, 225, 96, 394, 'cs-path').setDepth(1);
-  scene.add.tileSprite(400, 225, 720, 96, 'cs-path').setDepth(1);
-  scene.add.tileSprite(400, 225, 292, 206, 'cs-plaza').setDepth(1);
+  if (textured) {
+    scene.add.tileSprite(400, 225, 720, 394, 'cs-grass').setDepth(0);
+    scene.add.tileSprite(400, 225, 96, 394, 'cs-path').setDepth(1);
+    scene.add.tileSprite(400, 225, 720, 96, 'cs-path').setDepth(1);
+    scene.add.tileSprite(400, 225, 292, 206, 'cs-plaza').setDepth(1);
+  } else {
+    map.fillStyle(0x5f7f54);
+    map.fillRoundedRect(40, 28, 720, 394, 16);
+    map.fillStyle(0xd2c2a0);
+    map.fillRect(352, 28, 96, 394);
+    map.fillRect(40, 177, 720, 96);
+    map.fillStyle(0xe0d3b6);
+    map.fillRoundedRect(254, 122, 292, 206, 20);
+  }
   map.lineStyle(4, 0x8f7558, 0.85);
   map.strokeRoundedRect(254, 122, 292, 206, 18);
 
-  for (const building of BUILDINGS) drawBuilding(scene, map, building);
+  for (const building of BUILDINGS)
+    drawBuilding(scene, map, building, textured);
   for (const [x, y] of TREES) drawTree(map, x, y);
 
   // Central fountain and four benches give the square a recognizable focus.
@@ -208,6 +220,7 @@ function drawBuilding(
   scene: Phaser.Scene,
   graphics: Phaser.GameObjects.Graphics,
   building: Building,
+  textured: boolean,
 ): void {
   graphics.fillStyle(0x1f1712, 0.35);
   graphics.fillRoundedRect(
@@ -217,25 +230,38 @@ function drawBuilding(
     building.height,
     5,
   );
-  scene.add
-    .tileSprite(
-      building.x + building.width / 2,
-      building.y + building.height / 2,
+  if (textured) {
+    scene.add
+      .tileSprite(
+        building.x + building.width / 2,
+        building.y + building.height / 2,
+        building.width,
+        building.height,
+        'cs-wall',
+      )
+      .setDepth(2);
+    scene.add
+      .tileSprite(
+        building.x + building.width / 2,
+        building.y - 2,
+        building.width + 10,
+        18,
+        'cs-roof',
+      )
+      .setTint(building.roof)
+      .setDepth(3);
+  } else {
+    graphics.fillStyle(0xe2c99f);
+    graphics.fillRoundedRect(
+      building.x,
+      building.y,
       building.width,
       building.height,
-      'cs-wall',
-    )
-    .setDepth(2);
-  scene.add
-    .tileSprite(
-      building.x + building.width / 2,
-      building.y - 2,
-      building.width + 10,
-      18,
-      'cs-roof',
-    )
-    .setTint(building.roof)
-    .setDepth(3);
+      5,
+    );
+    graphics.fillStyle(building.roof);
+    graphics.fillRect(building.x - 4, building.y - 5, building.width + 8, 24);
+  }
   graphics.fillStyle(0x3b2d26);
   graphics.fillRect(
     building.x + building.width / 2 - 10,

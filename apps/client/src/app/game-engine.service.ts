@@ -21,7 +21,8 @@ export interface WorldScenePort {
 }
 
 interface EntityMarker {
-  readonly sprite: Phaser.GameObjects.Image;
+  readonly sprite: Phaser.GameObjects.Image | null;
+  readonly dot: Phaser.GameObjects.Graphics;
   readonly ring: Phaser.GameObjects.Graphics;
   readonly label: Phaser.GameObjects.Text;
 }
@@ -87,7 +88,8 @@ class WorldScene extends Phaser.Scene {
 
     for (const [characterId, marker] of this.markers) {
       if (currentIds.has(characterId)) continue;
-      marker.sprite.destroy();
+      marker.sprite?.destroy();
+      marker.dot.destroy();
       marker.ring.destroy();
       marker.label.destroy();
       this.markers.delete(characterId);
@@ -99,10 +101,17 @@ class WorldScene extends Phaser.Scene {
       const position = this.toScreenPosition(entity);
       const isSelf = entity.characterId === this.world.selfCharacterId();
 
-      marker.sprite.setTexture(
-        isSelf ? 'cs-character-self' : 'cs-character-other',
-      );
-      marker.sprite.setPosition(position.x, position.y);
+      if (marker.sprite) {
+        marker.sprite.setTexture(
+          isSelf ? 'cs-character-self' : 'cs-character-other',
+        );
+        marker.sprite.setPosition(position.x, position.y);
+        marker.dot.clear();
+      } else {
+        marker.dot.clear();
+        marker.dot.fillStyle(isSelf ? 0x38bdf8 : 0xa78bfa, 1);
+        marker.dot.fillCircle(position.x, position.y, isSelf ? 8 : 6);
+      }
       marker.ring.clear();
       if (entity.interaction) {
         marker.ring.lineStyle(2, 0xfacc15, 0.95);
@@ -118,11 +127,17 @@ class WorldScene extends Phaser.Scene {
 
   private createMarker(entity: WorldEntity): EntityMarker {
     const isSelf = entity.characterId === this.world?.selfCharacterId();
+    const canSprite =
+      this.textures.exists('cs-character-self') &&
+      this.textures.exists('cs-character-other');
     const marker = {
-      sprite: this.add
-        .image(0, 0, isSelf ? 'cs-character-self' : 'cs-character-other')
-        .setDepth(10)
-        .setOrigin(0.5, 0.85),
+      sprite: canSprite
+        ? this.add
+            .image(0, 0, isSelf ? 'cs-character-self' : 'cs-character-other')
+            .setDepth(10)
+            .setOrigin(0.5, 0.85)
+        : null,
+      dot: this.add.graphics().setDepth(10),
       ring: this.add.graphics().setDepth(9),
       label: this.add
         .text(0, 0, entity.name, {

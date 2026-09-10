@@ -87,7 +87,13 @@ function paint(
   draw: (graphics: Phaser.GameObjects.Graphics) => void,
 ): void {
   const g = scene.make.graphics({ x: 0, y: 0 }, false);
-  draw(g);
-  g.generateTexture(key, width, height);
-  g.destroy();
+  try {
+    draw(g);
+    // HEADLESS/canvas test boots cannot always rasterize textures.
+    g.generateTexture(key, width, height);
+  } catch {
+    // Leave texture missing; renderers fall back to solid graphics.
+  } finally {
+    g.destroy();
+  }
 }
