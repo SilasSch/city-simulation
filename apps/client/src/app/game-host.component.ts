@@ -11,6 +11,7 @@ import {
 import Phaser from 'phaser';
 import { GameEngineService } from './game-engine.service';
 import { RealtimeService } from './realtime.service';
+import { worldInteractionObject } from '@city/game-protocol';
 import { WorldStateService } from './world-state.service';
 
 /**
@@ -69,6 +70,14 @@ import { WorldStateService } from './world-state.service';
         >
           Am Nord-Kiosk arbeiten (+25 Geld)
         </button>
+        <button
+          type="button"
+          data-testid="shop-action"
+          [disabled]="!!self.interaction || self.money < snackPrice"
+          (click)="world.interact('snack-east')"
+        >
+          Snack kaufen (−{{ snackPrice }} Geld, +{{ snackEnergyGain }} Energy)
+        </button>
       }
       <p>Steuerung: WASD oder Pfeiltasten</p>
       <div #gameContainer class="game-container"></div>
@@ -80,6 +89,9 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
   private readonly gameContainer!: ElementRef<HTMLDivElement>;
 
   protected readonly engineBooted = signal(false);
+  protected readonly snackPrice = worldInteractionObject('snack-east').price;
+  protected readonly snackEnergyGain =
+    worldInteractionObject('snack-east').energyGain;
 
   private readonly engine = inject(GameEngineService);
   protected readonly realtime = inject(RealtimeService);

@@ -155,6 +155,27 @@ export function renderCentralSquare(scene: Phaser.Scene): void {
     .setOrigin(0.5)
     .setDepth(2);
 
+  const snackStall = WORLD_INTERACTION_OBJECTS.find(
+    (object) => object.id === 'snack-east',
+  )!;
+  const snackX = mapX(snackStall.x);
+  const snackY = mapY(snackStall.y);
+  map.fillStyle(0x7c2d12, 0.95);
+  map.fillRoundedRect(snackX - 26, snackY - 14, 52, 28, 4);
+  map.lineStyle(3, 0xfbbf24, 0.95);
+  map.strokeRoundedRect(snackX - 26, snackY - 14, 52, 28, 4);
+  scene.add
+    .text(snackX, snackY + 20, 'SHOP', {
+      color: '#fff7ed',
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '10px',
+      fontStyle: 'bold',
+      stroke: '#431407',
+      strokeThickness: 3,
+    })
+    .setOrigin(0.5)
+    .setDepth(2);
+
   scene.add
     .text(400, 72, 'CENTRAL SQUARE', {
       color: '#f7ecd0',

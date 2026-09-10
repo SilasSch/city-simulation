@@ -200,6 +200,10 @@ export class SimulationService implements OnModuleInit {
       );
     }
 
+    if (object.kind === 'shop') {
+      return this.purchase(characterId, object, state, simulatedNow);
+    }
+
     const currentEnergy = energyAt(
       state.energy,
       state.energyUpdatedAt,
@@ -238,6 +242,63 @@ export class SimulationService implements OnModuleInit {
         interactionEndsAt: null,
       },
     });
+  }
+
+  private async purchase(
+    characterId: string,
+    object: (typeof WORLD_INTERACTION_OBJECTS)[number],
+    state: {
+      energy: number;
+      energyUpdatedAt: Date;
+      money: number;
+    },
+    simulatedNow: Date,
+  ): Promise<WorldEntity> {
+    if (object.kind !== 'shop' || object.price <= 0) {
+      throw new ApplicationError(
+        'INTERACTION_OBJECT_NOT_FOUND',
+        404,
+        'Interaction object not found',
+      );
+    }
+    if (state.money < object.price) {
+      throw new ApplicationError(
+        'INSUFFICIENT_FUNDS',
+        409,
+        'Not enough money for this purchase',
+      );
+    }
+
+    const currentEnergy = energyAt(
+      state.energy,
+      state.energyUpdatedAt,
+      simulatedNow,
+    );
+    const nextEnergy = Math.min(ENERGY_MAX, currentEnergy + object.energyGain);
+
+    const result = await this.prisma.characterWorldState.updateMany({
+      where: {
+        characterId,
+        money: { gte: object.price },
+      },
+      data: {
+        energy: nextEnergy,
+        energyUpdatedAt: simulatedNow,
+        money: { decrement: object.price },
+        interactionObjectId: null,
+        interactionStartedAt: null,
+        interactionEndsAt: null,
+      },
+    });
+    if (result.count !== 1) {
+      throw new ApplicationError(
+        'INSUFFICIENT_FUNDS',
+        409,
+        'Not enough money for this purchase',
+      );
+    }
+
+    return this.entity(characterId);
   }
 
   private async projectState(

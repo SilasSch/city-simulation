@@ -34,6 +34,7 @@ export const PROTOCOL_ERROR_CODES = [
   'INTERACTION_OBJECT_NOT_FOUND',
   'INTERACTION_OUT_OF_RANGE',
   'INTERACTION_ALREADY_ACTIVE',
+  'INSUFFICIENT_FUNDS',
 ] as const;
 
 export const protocolErrorCodeSchema = z.enum(PROTOCOL_ERROR_CODES);
@@ -146,6 +147,7 @@ export const WORLD_INTERACTION_OBJECTS = [
     durationSimulationSeconds: 300,
     energyGain: 30,
     moneyGain: 0,
+    price: 0,
   },
   {
     id: 'kiosk-north',
@@ -156,10 +158,34 @@ export const WORLD_INTERACTION_OBJECTS = [
     durationSimulationSeconds: 180,
     energyGain: 0,
     moneyGain: 25,
+    price: 0,
+  },
+  {
+    id: 'snack-east',
+    kind: 'shop',
+    x: 70,
+    y: 50,
+    interactionRange: 10,
+    durationSimulationSeconds: 0,
+    energyGain: 20,
+    moneyGain: 0,
+    price: 15,
   },
 ] as const;
 export type WorldInteractionObject = (typeof WORLD_INTERACTION_OBJECTS)[number];
 export type WorldInteractionObjectId = WorldInteractionObject['id'];
+
+export function worldInteractionObject(
+  id: WorldInteractionObjectId,
+): WorldInteractionObject {
+  const object = WORLD_INTERACTION_OBJECTS.find(
+    (candidate) => candidate.id === id,
+  );
+  if (!object) {
+    throw new Error(`Unknown world interaction object: ${id}`);
+  }
+  return object;
+}
 
 export function isWorldPositionWalkable(x: number, y: number): boolean {
   if (
@@ -196,7 +222,7 @@ export const worldDirectionSchema = z.enum(['N', 'E', 'S', 'W']);
 export type WorldDirection = z.infer<typeof worldDirectionSchema>;
 
 export const worldInteractionStateSchema = z.object({
-  objectId: z.enum(['bench-south', 'kiosk-north']),
+  objectId: z.enum(['bench-south', 'kiosk-north', 'snack-east']),
   startedAt: z.string().datetime({ offset: true }),
   endsAt: z.string().datetime({ offset: true }),
   progress: z.number().min(0).max(1),
@@ -232,7 +258,7 @@ export type WorldMovePayload = z.infer<typeof worldMovePayloadSchema>;
 
 export const WORLD_INTERACT_COMMAND_TYPE = 'world-interact';
 export const worldInteractPayloadSchema = z.object({
-  objectId: z.enum(['bench-south', 'kiosk-north']),
+  objectId: z.enum(['bench-south', 'kiosk-north', 'snack-east']),
 });
 export type WorldInteractPayload = z.infer<typeof worldInteractPayloadSchema>;
 
