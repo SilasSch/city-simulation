@@ -46,13 +46,18 @@ class WorldScene extends Phaser.Scene {
     ensureCentralSquareTextures(this);
     renderCentralSquare(this);
 
+    // Full 16:9 stage shows the whole square — no zoom crop / chase-cam.
     this.cameras.main.setBounds(
-      CENTRAL_SQUARE_BOUNDS.x,
-      CENTRAL_SQUARE_BOUNDS.y,
-      CENTRAL_SQUARE_BOUNDS.width,
-      CENTRAL_SQUARE_BOUNDS.height,
+      0,
+      0,
+      CENTRAL_SQUARE_VIEWPORT.width,
+      CENTRAL_SQUARE_VIEWPORT.height,
     );
-    this.cameras.main.setZoom(1.3);
+    this.cameras.main.setZoom(1);
+    this.cameras.main.centerOn(
+      CENTRAL_SQUARE_VIEWPORT.width / 2,
+      CENTRAL_SQUARE_VIEWPORT.height / 2,
+    );
     this.cameras.main.setRoundPixels(true);
 
     this.input.keyboard?.on('keydown', this.handleKeydown);
@@ -118,10 +123,6 @@ class WorldScene extends Phaser.Scene {
         marker.ring.strokeCircle(position.x, position.y, 16);
       }
       marker.label.setPosition(position.x + 12, position.y - 18);
-
-      if (isSelf) {
-        this.cameras.main.centerOn(position.x, position.y);
-      }
     }
   }
 

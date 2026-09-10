@@ -27,19 +27,44 @@ import { WorldStateService } from './world-state.service';
   selector: 'app-game-host',
   styles: [
     `
+      :host {
+        display: block;
+      }
       .game-host {
+        /* Escape the narrow <main> column — true landscape stage. */
+        width: 100vw;
+        margin-left: calc(50% - 50vw);
+        margin-right: calc(50% - 50vw);
         display: grid;
         gap: 0.75rem;
+        justify-items: center;
+      }
+      .stage {
+        position: relative;
+        width: min(100vw, calc(100vh * 16 / 9));
+        height: min(100vh, calc(100vw * 9 / 16));
+        max-height: 100vh;
+        border-radius: 0.5rem;
+        overflow: hidden;
+        border: 1px solid #1f2937;
+        background: #16251c;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
       }
       .hud {
+        position: absolute;
+        z-index: 2;
+        top: 0.75rem;
+        left: 0.75rem;
+        right: 0.75rem;
         display: flex;
         flex-wrap: wrap;
         gap: 0.75rem 1rem;
         align-items: center;
         padding: 0.65rem 0.85rem;
         border-radius: 0.5rem;
-        background: #111827;
+        background: rgba(17, 24, 39, 0.88);
         border: 1px solid #274056;
+        backdrop-filter: blur(6px);
       }
       .hud-stat {
         display: grid;
@@ -96,102 +121,109 @@ import { WorldStateService } from './world-state.service';
         color: #fde68a;
         font-size: 0.85rem;
       }
+      .game-container {
+        width: 100%;
+        height: 100%;
+      }
       .meta {
         margin: 0;
         color: #64748b;
         font-size: 0.8rem;
       }
-      .game-container {
-        width: min(100%, 800px);
-        aspect-ratio: 16 / 9;
-        border-radius: 0.5rem;
-        overflow: hidden;
-        border: 1px solid #1f2937;
-        background: #16251c;
+      .meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 1.25rem;
+        justify-content: center;
+        max-width: min(100vw, calc(100vh * 16 / 9));
       }
     `,
   ],
   template: `
     <section class="game-host">
-      <h2>Central Square</h2>
-
-      @if (world.selfEntity(); as self) {
-        <div class="hud" role="status">
-          <div class="hud-stat">
-            <span class="hud-label">Geld</span>
-            <strong data-testid="money">{{ self.money }}</strong>
-          </div>
-          <div class="hud-stat">
-            <span class="hud-label">Energy</span>
-            <strong data-testid="energy"
-              >{{ self.energy.toFixed(0) }} / 100</strong
-            >
-            <div class="energy-bar" aria-hidden="true">
-              <span [style.width.%]="energyPercent(self)"></span>
+      <div class="stage">
+        @if (world.selfEntity(); as self) {
+          <div class="hud">
+            <div class="hud-stat">
+              <span class="hud-label">Geld</span>
+              <strong data-testid="money">{{ self.money }}</strong>
             </div>
+            <div class="hud-stat">
+              <span class="hud-label">Energy</span>
+              <strong data-testid="energy"
+                >{{ self.energy.toFixed(0) }} / 100</strong
+              >
+              <div class="energy-bar" aria-hidden="true">
+                <span [style.width.%]="energyPercent(self)"></span>
+              </div>
+            </div>
+            <div class="hud-actions">
+              <button
+                type="button"
+                data-testid="rest-action"
+                [disabled]="!!self.interaction || !inRange(self, 'bench-south')"
+                (click)="world.interact('bench-south')"
+              >
+                Ausruhen
+              </button>
+              <button
+                type="button"
+                data-testid="job-action"
+                [disabled]="!!self.interaction || !inRange(self, 'kiosk-north')"
+                (click)="world.interact('kiosk-north')"
+              >
+                Job (+{{ jobMoneyGain }})
+              </button>
+              <button
+                type="button"
+                data-testid="shop-action"
+                [disabled]="
+                  !!self.interaction ||
+                  self.money < snackPrice ||
+                  !inRange(self, 'snack-east')
+                "
+                (click)="world.interact('snack-east')"
+              >
+                Snack (−{{ snackPrice }})
+              </button>
+            </div>
+            @if (self.interaction; as interaction) {
+              <p class="interaction-chip" data-testid="interaction-state">
+                @if (interaction.objectId === 'bench-south') {
+                  Ruht auf der Bank:
+                } @else if (interaction.objectId === 'kiosk-north') {
+                  Arbeitet am Kiosk:
+                } @else {
+                  Interaktion:
+                }
+                {{ (interaction.progress * 100).toFixed(0) }} %
+              </p>
+            }
           </div>
-          <div class="hud-actions">
-            <button
-              type="button"
-              data-testid="rest-action"
-              [disabled]="!!self.interaction || !inRange(self, 'bench-south')"
-              (click)="world.interact('bench-south')"
-            >
-              Ausruhen
-            </button>
-            <button
-              type="button"
-              data-testid="job-action"
-              [disabled]="!!self.interaction || !inRange(self, 'kiosk-north')"
-              (click)="world.interact('kiosk-north')"
-            >
-              Job (+{{ jobMoneyGain }})
-            </button>
-            <button
-              type="button"
-              data-testid="shop-action"
-              [disabled]="
-                !!self.interaction ||
-                self.money < snackPrice ||
-                !inRange(self, 'snack-east')
-              "
-              (click)="world.interact('snack-east')"
-            >
-              Snack (−{{ snackPrice }})
-            </button>
-          </div>
-          @if (self.interaction; as interaction) {
-            <p class="interaction-chip" data-testid="interaction-state">
-              @if (interaction.objectId === 'bench-south') {
-                Ruht auf der Bank:
-              } @else if (interaction.objectId === 'kiosk-north') {
-                Arbeitet am Kiosk:
-              } @else {
-                Interaktion:
-              }
-              {{ (interaction.progress * 100).toFixed(0) }} %
-            </p>
-          }
-        </div>
-      } @else if (realtime.connectionState() === 'connected') {
-        <p class="meta" data-testid="world-loading">Spielwelt wird geladen…</p>
-      }
+        } @else if (realtime.connectionState() === 'connected') {
+          <p class="meta" data-testid="world-loading" style="padding: 1rem">
+            Spielwelt wird geladen…
+          </p>
+        }
 
-      <div #gameContainer class="game-container"></div>
+        <div #gameContainer class="game-container"></div>
+      </div>
 
-      <p class="meta">WASD / Pfeiltasten · Aktionen nur in Reichweite</p>
-      <p class="meta" data-testid="engine-status">
-        Phaser: {{ engineBooted() ? 'bereit' : 'startet…' }}
-      </p>
-      <p class="meta" data-testid="world-zone">
-        Zone: {{ world.zoneId() ?? '—' }}
-      </p>
-      <p class="meta" data-testid="world-player-count">
-        Sichtbar: {{ world.entities().length }}
-      </p>
-      <p class="meta" data-testid="simulation-time">
-        Zeit: {{ simulationTimeText() }}
-      </p>
+      <div class="meta-row">
+        <p class="meta">WASD / Pfeiltasten · 16:9 Vollbreite</p>
+        <p class="meta" data-testid="engine-status">
+          Phaser: {{ engineBooted() ? 'bereit' : 'startet…' }}
+        </p>
+        <p class="meta" data-testid="world-zone">
+          Zone: {{ world.zoneId() ?? '—' }}
+        </p>
+        <p class="meta" data-testid="world-player-count">
+          Sichtbar: {{ world.entities().length }}
+        </p>
+        <p class="meta" data-testid="simulation-time">
+          Zeit: {{ simulationTimeText() }}
+        </p>
+      </div>
     </section>
   `,
 })

@@ -15,9 +15,14 @@ body {
 main {
   max-width: 880px;
   margin: 0 auto;
-  padding: 2rem 1rem;
+  padding: 1.25rem 1rem 2rem;
   display: grid;
-  gap: 1.5rem;
+  gap: 1.25rem;
+}
+
+/* Game host owns its own full-bleed 16:9 stage. */
+app-game-host {
+  display: block;
 }
 
 .status-card,
@@ -99,10 +104,4 @@ main {
   color: #f87171;
 }
 
-.game-container {
-  width: 800px;
-  max-width: 100%;
-  aspect-ratio: 16 / 9;
-  background: #111827;
-  border-radius: 0.25rem;
-}
+/* .game-container sizing lives on app-game-host stage */
