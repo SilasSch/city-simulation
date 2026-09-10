@@ -120,14 +120,14 @@ describe('GameEngineService', () => {
   }, 15_000);
 
   it('swaps map art when confirmed zoneId changes', async () => {
-    const [{ GameEngineService }, Phaser, protocol] = await Promise.all([
+    const [{ GameEngineService }, Phaser] = await Promise.all([
       import('./game-engine.service'),
       import('phaser'),
-      import('@city/game-protocol'),
     ]);
 
-    let zoneId: 'central-square' | 'market-lane' | null =
-      protocol.WORLD_ZONE_ID;
+    // String zone ids — avoid importing @city/game-protocol here so Nx does
+    // not mark the lib as lazy-loaded (which would break static imports elsewhere).
+    let zoneId: 'central-square' | 'market-lane' | null = 'central-square';
     const world = {
       entities: () => [],
       selfCharacterId: () => null,
@@ -162,7 +162,7 @@ describe('GameEngineService', () => {
     );
     expect(textsBefore.length).toBeGreaterThan(0);
 
-    zoneId = protocol.MARKET_LANE_ZONE_ID;
+    zoneId = 'market-lane';
     scene.update(0, 16);
     await new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -179,7 +179,7 @@ describe('GameEngineService', () => {
     );
     expect(textsAfter.some((text) => text.includes('Zum Platz'))).toBe(true);
 
-    zoneId = protocol.WORLD_ZONE_ID;
+    zoneId = 'central-square';
     scene.update(0, 16);
     await new Promise((resolve) => setTimeout(resolve, 20));
     const textsBack = scene.children.list
