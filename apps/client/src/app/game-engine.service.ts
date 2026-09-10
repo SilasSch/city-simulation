@@ -11,6 +11,7 @@ import {
   CENTRAL_SQUARE_VIEWPORT,
   renderCentralSquare,
 } from './central-square-map';
+import { ensureCentralSquareTextures } from './central-square-textures';
 import { isEditableTarget, worldDirectionForKey } from './world-input';
 
 export interface WorldScenePort {
@@ -20,7 +21,8 @@ export interface WorldScenePort {
 }
 
 interface EntityMarker {
-  readonly dot: Phaser.GameObjects.Graphics;
+  readonly sprite: Phaser.GameObjects.Image;
+  readonly ring: Phaser.GameObjects.Graphics;
   readonly label: Phaser.GameObjects.Text;
 }
 
@@ -40,6 +42,7 @@ class WorldScene extends Phaser.Scene {
   }
 
   create(): void {
+    ensureCentralSquareTextures(this);
     renderCentralSquare(this);
 
     this.cameras.main.setBounds(
@@ -84,7 +87,8 @@ class WorldScene extends Phaser.Scene {
 
     for (const [characterId, marker] of this.markers) {
       if (currentIds.has(characterId)) continue;
-      marker.dot.destroy();
+      marker.sprite.destroy();
+      marker.ring.destroy();
       marker.label.destroy();
       this.markers.delete(characterId);
     }
@@ -95,14 +99,16 @@ class WorldScene extends Phaser.Scene {
       const position = this.toScreenPosition(entity);
       const isSelf = entity.characterId === this.world.selfCharacterId();
 
-      marker.dot.clear();
-      marker.dot.fillStyle(isSelf ? 0x38bdf8 : 0xa78bfa, 1);
-      marker.dot.fillCircle(position.x, position.y, isSelf ? 8 : 6);
+      marker.sprite.setTexture(
+        isSelf ? 'cs-character-self' : 'cs-character-other',
+      );
+      marker.sprite.setPosition(position.x, position.y);
+      marker.ring.clear();
       if (entity.interaction) {
-        marker.dot.lineStyle(2, 0xfacc15, 0.95);
-        marker.dot.strokeCircle(position.x, position.y, 13);
+        marker.ring.lineStyle(2, 0xfacc15, 0.95);
+        marker.ring.strokeCircle(position.x, position.y, 16);
       }
-      marker.label.setPosition(position.x + 10, position.y - 8);
+      marker.label.setPosition(position.x + 12, position.y - 18);
 
       if (isSelf) {
         this.cameras.main.centerOn(position.x, position.y);
@@ -111,11 +117,16 @@ class WorldScene extends Phaser.Scene {
   }
 
   private createMarker(entity: WorldEntity): EntityMarker {
+    const isSelf = entity.characterId === this.world?.selfCharacterId();
     const marker = {
-      dot: this.add.graphics().setDepth(10),
+      sprite: this.add
+        .image(0, 0, isSelf ? 'cs-character-self' : 'cs-character-other')
+        .setDepth(10)
+        .setOrigin(0.5, 0.85),
+      ring: this.add.graphics().setDepth(9),
       label: this.add
         .text(0, 0, entity.name, {
-          color: '#e5e7eb',
+          color: '#f8fafc',
           fontFamily: 'system-ui, sans-serif',
           fontSize: '12px',
           stroke: '#172019',
