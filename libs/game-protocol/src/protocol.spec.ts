@@ -11,6 +11,7 @@ import {
   WORLD_SNAPSHOT_EVENT_TYPE,
   WORLD_ZONE_ID,
   CENTRAL_SQUARE_NPCS,
+  CENTRAL_SQUARE_NPC_PATROLS,
   connectionEstablishedPayloadSchema,
   connectPayloadSchema,
   createMessage,
@@ -140,6 +141,32 @@ describe('protocol schemas', () => {
     expect(mergeZoneNpcEntities('other-zone', [WORLD_ENTITY])).toEqual([
       WORLD_ENTITY,
     ]);
+  });
+
+  it('prefers live NPC positions over the catalog when merging', () => {
+    const live = {
+      ...CENTRAL_SQUARE_NPCS[0]!,
+      x: 34,
+      y: 70,
+    };
+    const merged = mergeZoneNpcEntities(WORLD_ZONE_ID, [live]);
+    expect(
+      merged.find((entity) => entity.characterId === live.characterId),
+    ).toEqual(live);
+  });
+
+  it('defines walkable patrol waypoints for Central Square NPCs', () => {
+    expect(CENTRAL_SQUARE_NPC_PATROLS.length).toBeGreaterThan(0);
+    for (const patrol of CENTRAL_SQUARE_NPC_PATROLS) {
+      expect(
+        CENTRAL_SQUARE_NPCS.some(
+          (npc) => npc.characterId === patrol.characterId,
+        ),
+      ).toBe(true);
+      for (const waypoint of patrol.waypoints) {
+        expect(isWorldPositionWalkable(waypoint.x, waypoint.y)).toBe(true);
+      }
+    }
   });
 });
 

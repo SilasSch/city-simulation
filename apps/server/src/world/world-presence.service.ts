@@ -4,6 +4,11 @@ import {
   WORLD_ZONE_ID,
   type WorldEntity,
 } from '@city/game-protocol';
+import {
+  createNpcPatrolRuntimes,
+  tickNpcPatrols,
+  type NpcPatrolRuntime,
+} from './npc-patrol';
 
 interface CharacterPresence {
   entity: WorldEntity;
@@ -19,12 +24,15 @@ export interface PresenceDeparture {
  * Prozesslokale Live-Presence für die einzelne Serverinstanz des aktuellen
  * Deployment-Milestones. Persistente Positionen bleiben im Repository; diese
  * Registry entscheidet nur, welche Characters gerade sichtbar sein sollen.
- * Zonen-NPCs sind session-stabil und immer Teil der sichtbaren Entity-Liste.
+ * Zonen-NPCs sind session-stabil, server-tick-bewegt und immer Teil der
+ * sichtbaren Entity-Liste — Clients können NPC-Positionen nicht setzen.
  */
 @Injectable()
 export class WorldPresenceService {
   private readonly presences = new Map<string, CharacterPresence>();
   private readonly characterBySocket = new Map<string, string>();
+  private readonly npcRuntimes: Map<string, NpcPatrolRuntime> =
+    createNpcPatrolRuntimes();
 
   enter(socketId: string, entity: WorldEntity): boolean {
     if (entity.kind === 'npc') {
@@ -64,15 +72,22 @@ export class WorldPresenceService {
   }
 
   update(entity: WorldEntity): void {
+    // NPC positions are server-tick only — ignore client-origin updates.
     if (entity.kind === 'npc') return;
     const presence = this.presences.get(entity.characterId);
     if (presence) presence.entity = entity;
   }
 
-  /** Sichtbare Entities der Zone inkl. fester NPCs. */
+  /** Advances zone NPC patrols; returns entities that changed position. */
+  advanceNpcs(): WorldEntity[] {
+    return tickNpcPatrols(this.npcRuntimes);
+  }
+
+  /** Sichtbare Entities der Zone inkl. live NPC-Positionen. */
   entities(): WorldEntity[] {
     const live = [...this.presences.values()].map(({ entity }) => entity);
-    return mergeZoneNpcEntities(WORLD_ZONE_ID, live);
+    const npcs = [...this.npcRuntimes.values()].map(({ entity }) => entity);
+    return mergeZoneNpcEntities(WORLD_ZONE_ID, [...live, ...npcs]);
   }
 
   /** Nur spielergebundene Presence-IDs (für Simulationsticks). */
