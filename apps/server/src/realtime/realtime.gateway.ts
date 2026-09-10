@@ -335,9 +335,7 @@ export class RealtimeGateway
   }
 
   private async broadcastSimulationTick(server: Server): Promise<void> {
-    const characterIds = this.presence
-      .entities()
-      .map((entity) => entity.characterId);
+    const characterIds = this.presence.characterIds();
     if (characterIds.length === 0) return;
 
     try {

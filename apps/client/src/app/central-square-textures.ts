@@ -77,6 +77,18 @@ export function ensureCentralSquareTextures(scene: Phaser.Scene): void {
     g.fillStyle(0xf5d0fe);
     g.fillCircle(10, 7, 5);
   });
+
+  paint(scene, 'cs-character-npc', 20, 28, (g) => {
+    g.fillStyle(0x0f172a, 0.25);
+    g.fillEllipse(10, 25, 12, 5);
+    g.fillStyle(0xf59e0b);
+    g.fillRoundedRect(5, 10, 10, 12, 3);
+    g.fillStyle(0xfef3c7);
+    g.fillCircle(10, 7, 5);
+    g.fillStyle(0xb45309);
+    g.fillRect(4, 14, 3, 7);
+    g.fillRect(13, 14, 3, 7);
+  });
 }
 
 function paint(

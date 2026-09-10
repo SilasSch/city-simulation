@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { CharacterWorldState, SimulationClock } from '@prisma/client';
 import {
   WORLD_INTERACTION_OBJECTS,
+  mergeZoneNpcEntities,
   type SimulationClockPayload,
   type WorldEntity,
   type WorldInteractionObjectId,
@@ -127,7 +128,10 @@ export class SimulationService implements OnModuleInit {
       orderBy: { characterId: 'asc' },
       include: { character: { select: { name: true } } },
     });
-    return Promise.all(states.map((state) => this.projectState(state)));
+    const characters = await Promise.all(
+      states.map((state) => this.projectState(state)),
+    );
+    return mergeZoneNpcEntities(zoneId, characters);
   }
 
   async entity(characterId: string): Promise<WorldEntity> {
@@ -342,6 +346,7 @@ export class SimulationService implements OnModuleInit {
 
     return {
       characterId: state.characterId,
+      kind: 'character',
       name: state.character.name,
       x: state.x,
       y: state.y,

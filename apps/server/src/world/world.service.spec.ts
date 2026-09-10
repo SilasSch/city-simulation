@@ -61,15 +61,24 @@ describe('WorldService (integration)', () => {
     const principal = await playerWithCharacter('enter@example.com');
 
     const firstEntry = await world.enter(principal, WORLD_ZONE_ID);
-    expect(firstEntry.snapshot.entities).toHaveLength(1);
-    expect(firstEntry.snapshot.entities[0]).toMatchObject({
+    expect(firstEntry.snapshot.entities.length).toBeGreaterThanOrEqual(2);
+    const self = firstEntry.snapshot.entities.find(
+      (entity) => entity.characterId === firstEntry.snapshot.selfCharacterId,
+    );
+    expect(self).toMatchObject({
       characterId: firstEntry.snapshot.selfCharacterId,
+      kind: 'character',
       name: 'Ayla',
       x: WORLD_SPAWN_POSITION.x,
       y: WORLD_SPAWN_POSITION.y,
       interaction: null,
     });
-    expect(firstEntry.snapshot.entities[0]?.energy).toBeGreaterThan(99);
+    expect(self?.energy).toBeGreaterThan(99);
+    expect(firstEntry.snapshot.entities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'npc', name: 'Nachbar' }),
+      ]),
+    );
 
     const moved = await world.move(principal, firstEntry.context, 'E');
     const secondEntry = await world.enter(principal, WORLD_ZONE_ID);
