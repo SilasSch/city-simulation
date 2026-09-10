@@ -175,15 +175,24 @@ describe('World via RealtimeGateway (integration)', () => {
     const snapshot = worldSnapshotPayloadSchema.parse(firstSnapshot.payload);
     expect(snapshot.selfCharacterId).toBe(player.characterId);
     expect(snapshot.clock.speed).toBe(60);
-    expect(snapshot.entities).toHaveLength(1);
-    expect(snapshot.entities[0]).toMatchObject({
+    expect(snapshot.entities.length).toBeGreaterThanOrEqual(2);
+    const self = snapshot.entities.find(
+      (entity) => entity.characterId === player.characterId,
+    );
+    expect(self).toMatchObject({
       characterId: player.characterId,
+      kind: 'character',
       name: 'Ayla',
       x: 50,
       y: 70,
       interaction: null,
     });
-    expect(snapshot.entities[0]?.energy).toBeGreaterThan(99);
+    expect(self?.energy).toBeGreaterThan(99);
+    expect(snapshot.entities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'npc', name: 'Nachbar' }),
+      ]),
+    );
     await enter(second.socket);
 
     const firstEvent = nextMessage(

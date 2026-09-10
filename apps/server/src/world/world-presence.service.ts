@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import type { WorldEntity } from '@city/game-protocol';
+import {
+  mergeZoneNpcEntities,
+  WORLD_ZONE_ID,
+  type WorldEntity,
+} from '@city/game-protocol';
 
 interface CharacterPresence {
   entity: WorldEntity;
@@ -15,6 +19,7 @@ export interface PresenceDeparture {
  * Prozesslokale Live-Presence für die einzelne Serverinstanz des aktuellen
  * Deployment-Milestones. Persistente Positionen bleiben im Repository; diese
  * Registry entscheidet nur, welche Characters gerade sichtbar sein sollen.
+ * Zonen-NPCs sind session-stabil und immer Teil der sichtbaren Entity-Liste.
  */
 @Injectable()
 export class WorldPresenceService {
@@ -22,6 +27,9 @@ export class WorldPresenceService {
   private readonly characterBySocket = new Map<string, string>();
 
   enter(socketId: string, entity: WorldEntity): boolean {
+    if (entity.kind === 'npc') {
+      return false;
+    }
     const existing = this.presences.get(entity.characterId);
     if (existing) {
       existing.entity = entity;
@@ -56,13 +64,19 @@ export class WorldPresenceService {
   }
 
   update(entity: WorldEntity): void {
+    if (entity.kind === 'npc') return;
     const presence = this.presences.get(entity.characterId);
     if (presence) presence.entity = entity;
   }
 
+  /** Sichtbare Entities der Zone inkl. fester NPCs. */
   entities(): WorldEntity[] {
-    return [...this.presences.values()]
-      .map(({ entity }) => entity)
-      .sort((left, right) => left.characterId.localeCompare(right.characterId));
+    const live = [...this.presences.values()].map(({ entity }) => entity);
+    return mergeZoneNpcEntities(WORLD_ZONE_ID, live);
+  }
+
+  /** Nur spielergebundene Presence-IDs (für Simulationsticks). */
+  characterIds(): string[] {
+    return [...this.presences.keys()].sort();
   }
 }

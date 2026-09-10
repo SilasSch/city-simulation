@@ -10,10 +10,12 @@ import {
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
   WORLD_ZONE_ID,
+  CENTRAL_SQUARE_NPCS,
   connectionEstablishedPayloadSchema,
   connectPayloadSchema,
   createMessage,
   isWorldPositionWalkable,
+  mergeZoneNpcEntities,
   protocolEnvelopeSchema,
   worldEntitySchema,
   worldSnapshotPayloadSchema,
@@ -23,6 +25,7 @@ import { parseIncomingMessage, parseServerMessage } from './parse';
 const CHARACTER_ID = '3f6f1c2a-9f3d-4f2a-9b3d-2f1a2b3c4d5e';
 const WORLD_ENTITY = {
   characterId: CHARACTER_ID,
+  kind: 'character' as const,
   name: 'Ayla',
   x: 50,
   y: 50,
@@ -94,6 +97,49 @@ describe('protocol schemas', () => {
         entities: [WORLD_ENTITY],
       }).success,
     ).toBe(true);
+  });
+
+  it('defaults missing entity kind to character and accepts NPCs', () => {
+    const withoutKind = {
+      characterId: CHARACTER_ID,
+      name: 'Ayla',
+      x: 50,
+      y: 50,
+      energy: 90,
+      money: 0,
+      interaction: null,
+    };
+    const parsed = worldEntitySchema.safeParse(withoutKind);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.kind).toBe('character');
+    }
+
+    const npc = CENTRAL_SQUARE_NPCS[0];
+    expect(npc).toBeDefined();
+    expect(worldEntitySchema.safeParse(npc).success).toBe(true);
+    expect(npc?.kind).toBe('npc');
+    expect(isWorldPositionWalkable(npc!.x, npc!.y)).toBe(true);
+  });
+
+  it('merges fixed Central Square NPCs into zone entity lists', () => {
+    const merged = mergeZoneNpcEntities(WORLD_ZONE_ID, [WORLD_ENTITY]);
+    expect(merged).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          characterId: CHARACTER_ID,
+          kind: 'character',
+        }),
+        expect.objectContaining({
+          characterId: CENTRAL_SQUARE_NPCS[0]!.characterId,
+          kind: 'npc',
+          name: 'Nachbar',
+        }),
+      ]),
+    );
+    expect(mergeZoneNpcEntities('other-zone', [WORLD_ENTITY])).toEqual([
+      WORLD_ENTITY,
+    ]);
   });
 });
 

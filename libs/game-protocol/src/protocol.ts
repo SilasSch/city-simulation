@@ -233,8 +233,14 @@ export type WorldInteractionState = z.infer<typeof worldInteractionStateSchema>;
 export const CHARACTER_MONEY_MIN = 0;
 export const CHARACTER_MONEY_START = 0;
 
+export const WORLD_ENTITY_KINDS = ['character', 'npc'] as const;
+export const worldEntityKindSchema = z.enum(WORLD_ENTITY_KINDS);
+export type WorldEntityKind = z.infer<typeof worldEntityKindSchema>;
+
 export const worldEntitySchema = z.object({
   characterId: z.string().uuid(),
+  /** Player characters default when omitted (additive protocol field). */
+  kind: worldEntityKindSchema.default('character'),
   name: z.string().min(1).max(32),
   x: z.number().int().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
   y: z.number().int().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
@@ -243,6 +249,47 @@ export const worldEntitySchema = z.object({
   interaction: worldInteractionStateSchema.nullable(),
 });
 export type WorldEntity = z.infer<typeof worldEntitySchema>;
+
+/**
+ * Stabile, server-seitige NPCs der Central Square. Session-Lebensdauer —
+ * kein Character-Account. characterId bleibt der gemeinsame Entity-Key
+ * (join/update/leave/snapshot); kind unterscheidet Spieler und NPC.
+ */
+export const CENTRAL_SQUARE_NPCS: readonly WorldEntity[] = [
+  {
+    characterId: 'a1111111-1111-4111-8111-111111111111',
+    kind: 'npc',
+    name: 'Nachbar',
+    x: 42,
+    y: 58,
+    energy: 100,
+    money: 0,
+    interaction: null,
+  },
+];
+
+export function centralSquareNpcEntities(): WorldEntity[] {
+  return CENTRAL_SQUARE_NPCS.map((npc) => ({ ...npc }));
+}
+
+/** Hängt zonenspezifische NPCs an eine Entity-Liste (idempotent nach characterId). */
+export function mergeZoneNpcEntities(
+  zoneId: string,
+  entities: readonly WorldEntity[],
+): WorldEntity[] {
+  if (zoneId !== WORLD_ZONE_ID) {
+    return [...entities];
+  }
+  const byId = new Map(
+    entities.map((entity) => [entity.characterId, entity] as const),
+  );
+  for (const npc of centralSquareNpcEntities()) {
+    byId.set(npc.characterId, npc);
+  }
+  return [...byId.values()].sort((left, right) =>
+    left.characterId.localeCompare(right.characterId),
+  );
+}
 
 export const WORLD_ENTER_COMMAND_TYPE = 'world-enter';
 export const worldEnterPayloadSchema = z.object({

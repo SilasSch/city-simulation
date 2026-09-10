@@ -105,44 +105,56 @@ class WorldScene extends Phaser.Scene {
         this.markers.get(entity.characterId) ?? this.createMarker(entity);
       const position = this.toScreenPosition(entity);
       const isSelf = entity.characterId === this.world.selfCharacterId();
+      const isNpc = entity.kind === 'npc';
+      const textureKey = isNpc
+        ? 'cs-character-npc'
+        : isSelf
+          ? 'cs-character-self'
+          : 'cs-character-other';
 
       if (marker.sprite) {
-        marker.sprite.setTexture(
-          isSelf ? 'cs-character-self' : 'cs-character-other',
-        );
+        marker.sprite.setTexture(textureKey);
         marker.sprite.setPosition(position.x, position.y);
         marker.dot.clear();
       } else {
         marker.dot.clear();
-        marker.dot.fillStyle(isSelf ? 0x38bdf8 : 0xa78bfa, 1);
-        marker.dot.fillCircle(position.x, position.y, isSelf ? 8 : 6);
+        marker.dot.fillStyle(
+          isNpc ? 0xf59e0b : isSelf ? 0x38bdf8 : 0xa78bfa,
+          1,
+        );
+        marker.dot.fillCircle(position.x, position.y, isSelf && !isNpc ? 8 : 6);
       }
       marker.ring.clear();
       if (entity.interaction) {
         marker.ring.lineStyle(2, 0xfacc15, 0.95);
         marker.ring.strokeCircle(position.x, position.y, 16);
       }
+      marker.label.setText(isNpc ? `${entity.name} (NPC)` : entity.name);
       marker.label.setPosition(position.x + 12, position.y - 18);
     }
   }
 
   private createMarker(entity: WorldEntity): EntityMarker {
     const isSelf = entity.characterId === this.world?.selfCharacterId();
+    const isNpc = entity.kind === 'npc';
     const canSprite =
       this.textures.exists('cs-character-self') &&
-      this.textures.exists('cs-character-other');
+      this.textures.exists('cs-character-other') &&
+      this.textures.exists('cs-character-npc');
+    const textureKey = isNpc
+      ? 'cs-character-npc'
+      : isSelf
+        ? 'cs-character-self'
+        : 'cs-character-other';
     const marker = {
       sprite: canSprite
-        ? this.add
-            .image(0, 0, isSelf ? 'cs-character-self' : 'cs-character-other')
-            .setDepth(10)
-            .setOrigin(0.5, 0.85)
+        ? this.add.image(0, 0, textureKey).setDepth(10).setOrigin(0.5, 0.85)
         : null,
       dot: this.add.graphics().setDepth(10),
       ring: this.add.graphics().setDepth(9),
       label: this.add
-        .text(0, 0, entity.name, {
-          color: '#f8fafc',
+        .text(0, 0, isNpc ? `${entity.name} (NPC)` : entity.name, {
+          color: isNpc ? '#fde68a' : '#f8fafc',
           fontFamily: 'system-ui, sans-serif',
           fontSize: '12px',
           stroke: '#172019',
