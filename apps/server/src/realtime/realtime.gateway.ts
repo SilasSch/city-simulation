@@ -335,19 +335,32 @@ export class RealtimeGateway
   }
 
   private async broadcastSimulationTick(server: Server): Promise<void> {
+    // NPCs advance on the same 1 Hz timer even when the room is empty so
+    // late joiners see a live position; broadcasts only matter with peers.
+    const movedNpcs = this.presence.advanceNpcs();
     const characterIds = this.presence.characterIds();
-    if (characterIds.length === 0) return;
 
     try {
-      const tick = await this.simulation.tick(characterIds);
-      server
-        .to(WORLD_ROOM)
-        .emit(
-          PROTOCOL_CHANNEL,
-          createMessage(SIMULATION_CLOCK_EVENT_TYPE, tick.clock),
-        );
-      for (const entity of tick.entities) {
-        this.presence.update(entity);
+      if (characterIds.length > 0) {
+        const tick = await this.simulation.tick(characterIds);
+        server
+          .to(WORLD_ROOM)
+          .emit(
+            PROTOCOL_CHANNEL,
+            createMessage(SIMULATION_CLOCK_EVENT_TYPE, tick.clock),
+          );
+        for (const entity of tick.entities) {
+          this.presence.update(entity);
+          server
+            .to(WORLD_ROOM)
+            .emit(
+              PROTOCOL_CHANNEL,
+              createMessage(WORLD_ENTITY_UPDATED_EVENT_TYPE, { entity }),
+            );
+        }
+      }
+
+      for (const entity of movedNpcs) {
         server
           .to(WORLD_ROOM)
           .emit(

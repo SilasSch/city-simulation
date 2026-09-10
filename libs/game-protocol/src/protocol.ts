@@ -272,7 +272,45 @@ export function centralSquareNpcEntities(): WorldEntity[] {
   return CENTRAL_SQUARE_NPCS.map((npc) => ({ ...npc }));
 }
 
-/** Hängt zonenspezifische NPCs an eine Entity-Liste (idempotent nach characterId). */
+/**
+ * Einfache Patrol-Definitionen je Central-Square-NPC (server-tick).
+ * Waypoints liegen auf begehbaren Plaza-Koordinaten; Idle-Pausen in Ticks.
+ */
+export interface CentralSquareNpcPatrol {
+  readonly characterId: string;
+  readonly waypoints: readonly { readonly x: number; readonly y: number }[];
+  /** Pause at each waypoint, in simulation ticks (1 Hz on the gateway). */
+  readonly idleTicks: number;
+  /** Integer steps toward the next waypoint per tick. */
+  readonly step: number;
+}
+
+export const CENTRAL_SQUARE_NPC_PATROLS: readonly CentralSquareNpcPatrol[] = [
+  {
+    characterId: CENTRAL_SQUARE_NPCS[0]!.characterId,
+    waypoints: [
+      { x: 42, y: 58 },
+      { x: 34, y: 58 },
+      { x: 34, y: 70 },
+      { x: 46, y: 70 },
+      { x: 46, y: 58 },
+    ],
+    idleTicks: 3,
+    step: 1,
+  },
+];
+
+export function centralSquareNpcPatrol(
+  characterId: string,
+): CentralSquareNpcPatrol | undefined {
+  return CENTRAL_SQUARE_NPC_PATROLS.find(
+    (patrol) => patrol.characterId === characterId,
+  );
+}
+
+/** Hängt zonenspezifische NPCs an eine Entity-Liste (idempotent nach characterId).
+ * Bereits vorhandene Entities (z. B. live patrol positions) haben Vorrang vor dem Katalog.
+ */
 export function mergeZoneNpcEntities(
   zoneId: string,
   entities: readonly WorldEntity[],
@@ -284,7 +322,9 @@ export function mergeZoneNpcEntities(
     entities.map((entity) => [entity.characterId, entity] as const),
   );
   for (const npc of centralSquareNpcEntities()) {
-    byId.set(npc.characterId, npc);
+    if (!byId.has(npc.characterId)) {
+      byId.set(npc.characterId, npc);
+    }
   }
   return [...byId.values()].sort((left, right) =>
     left.characterId.localeCompare(right.characterId),
