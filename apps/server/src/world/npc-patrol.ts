@@ -11,6 +11,8 @@ export interface NpcPatrolRuntime {
   entity: WorldEntity;
   waypointIndex: number;
   idleTicksRemaining: number;
+  /** Extra hold after a player greet; burns before waypoint idle/move. */
+  interactPauseTicksRemaining: number;
 }
 
 export function createNpcPatrolRuntimes(): Map<string, NpcPatrolRuntime> {
@@ -26,6 +28,7 @@ export function createNpcPatrolRuntimes(): Map<string, NpcPatrolRuntime> {
       },
       waypointIndex: 0,
       idleTicksRemaining: patrol?.idleTicks ?? 0,
+      interactPauseTicksRemaining: 0,
     });
   }
   return runtimes;
@@ -41,6 +44,16 @@ export function advanceNpcPatrol(
 ): { runtime: NpcPatrolRuntime; moved: boolean } {
   if (patrol.waypoints.length === 0) {
     return { runtime, moved: false };
+  }
+
+  if (runtime.interactPauseTicksRemaining > 0) {
+    return {
+      runtime: {
+        ...runtime,
+        interactPauseTicksRemaining: runtime.interactPauseTicksRemaining - 1,
+      },
+      moved: false,
+    };
   }
 
   if (runtime.idleTicksRemaining > 0) {
@@ -85,6 +98,7 @@ export function advanceNpcPatrol(
         ...runtime,
         waypointIndex: skipIndex,
         idleTicksRemaining: patrol.idleTicks,
+        interactPauseTicksRemaining: 0,
       },
       moved: false,
     };
@@ -96,6 +110,7 @@ export function advanceNpcPatrol(
       entity: { ...runtime.entity, x: nextX, y: nextY },
       waypointIndex,
       idleTicksRemaining: arrived ? patrol.idleTicks : 0,
+      interactPauseTicksRemaining: 0,
     },
     moved: nextX !== x || nextY !== y,
   };

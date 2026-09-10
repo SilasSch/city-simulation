@@ -4,6 +4,7 @@ import {
   WORLD_ENTITY_JOINED_EVENT_TYPE,
   WORLD_ENTITY_LEFT_EVENT_TYPE,
   WORLD_ENTITY_UPDATED_EVENT_TYPE,
+  WORLD_INTERACT_RESULT_EVENT_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
   WORLD_ZONE_ID,
@@ -13,6 +14,7 @@ import type {
   ParsedServerMessage,
   WorldDirection,
   WorldEntity,
+  WorldInteractResultPayload,
   WorldInteractionObjectId,
   WorldZoneId,
 } from '@city/game-protocol';
@@ -33,6 +35,8 @@ export class WorldStateService {
   readonly simulatedTime = signal<string | null>(null);
   readonly simulationSpeed = signal<number | null>(null);
   readonly entities = signal<readonly WorldEntity[]>([]);
+  /** Short server-validated NPC greet / hint shown in the HUD toast. */
+  readonly interactFeedback = signal<WorldInteractResultPayload | null>(null);
   readonly selfEntity = computed(() => {
     const selfCharacterId = this.selfCharacterId();
     return (
@@ -73,7 +77,12 @@ export class WorldStateService {
 
   interact(objectId: WorldInteractionObjectId): void {
     if (!this.zoneId() || !this.selfEntity()) return;
-    this.realtime.sendWorldInteract(objectId);
+    this.realtime.sendWorldInteract({ objectId });
+  }
+
+  interactNpc(npcCharacterId: string): void {
+    if (!this.zoneId() || !this.selfEntity()) return;
+    this.realtime.sendWorldInteract({ npcCharacterId });
   }
 
   move(direction: WorldDirection): void {
@@ -117,6 +126,10 @@ export class WorldStateService {
           ),
         );
         return;
+      case WORLD_INTERACT_RESULT_EVENT_TYPE:
+        if (!this.zoneId()) return;
+        this.interactFeedback.set(message.payload);
+        return;
       case SIMULATION_CLOCK_EVENT_TYPE:
         this.simulatedTime.set(message.payload.simulatedTime);
         this.simulationSpeed.set(message.payload.speed);
@@ -145,5 +158,6 @@ export class WorldStateService {
     this.simulatedTime.set(null);
     this.simulationSpeed.set(null);
     this.entities.set([]);
+    this.interactFeedback.set(null);
   }
 }

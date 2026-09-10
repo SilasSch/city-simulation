@@ -343,11 +343,46 @@ export const worldMovePayloadSchema = z.object({
 });
 export type WorldMovePayload = z.infer<typeof worldMovePayloadSchema>;
 
+/** Shared interact reach for Central Square NPCs (same ballpark as POIs). */
+export const NPC_INTERACTION_RANGE = 10;
+/** Simulation ticks (1 Hz) an NPC stays put after a successful greet. */
+export const NPC_INTERACT_PAUSE_TICKS = 5;
+
+/**
+ * Server-authored short lines for zone NPCs. Keys are characterIds.
+ * Hints steer players toward existing job/shop loops — no new economy.
+ */
+export const CENTRAL_SQUARE_NPC_GREETINGS: Readonly<Record<string, string>> = {
+  [CENTRAL_SQUARE_NPCS[0]!.characterId]:
+    'Hallo! Am Nord-Kiosk gibt es Arbeit, östlich findest du Snacks.',
+};
+
+export function centralSquareNpcGreeting(
+  characterId: string,
+): string | undefined {
+  return CENTRAL_SQUARE_NPC_GREETINGS[characterId];
+}
+
 export const WORLD_INTERACT_COMMAND_TYPE = 'world-interact';
-export const worldInteractPayloadSchema = z.object({
-  objectId: z.enum(['bench-south', 'kiosk-north', 'snack-east']),
-});
+/**
+ * world-interact targets either a static POI (timed / purchase) or a zone NPC
+ * (immediate greet). Object payloads stay additive-compatible with prior clients.
+ */
+export const worldInteractPayloadSchema = z.union([
+  z.object({
+    objectId: z.enum(['bench-south', 'kiosk-north', 'snack-east']),
+  }),
+  z.object({
+    npcCharacterId: z.string().uuid(),
+  }),
+]);
 export type WorldInteractPayload = z.infer<typeof worldInteractPayloadSchema>;
+
+export function isNpcWorldInteractPayload(
+  payload: WorldInteractPayload,
+): payload is { npcCharacterId: string } {
+  return 'npcCharacterId' in payload;
+}
 
 // --- Events (Server -> Client): Zustandsänderung ist bereits erfolgt ---
 
@@ -409,6 +444,17 @@ export const worldEntityUpdatedPayloadSchema = z.object({
 });
 export type WorldEntityUpdatedPayload = z.infer<
   typeof worldEntityUpdatedPayloadSchema
+>;
+
+export const WORLD_INTERACT_RESULT_EVENT_TYPE = 'world-interact-result';
+export const worldInteractResultPayloadSchema = z.object({
+  kind: z.literal('npc-greet'),
+  npcCharacterId: z.string().uuid(),
+  npcName: z.string().min(1).max(32),
+  message: z.string().min(1).max(200),
+});
+export type WorldInteractResultPayload = z.infer<
+  typeof worldInteractResultPayloadSchema
 >;
 
 export const SIMULATION_CLOCK_EVENT_TYPE = 'simulation-clock';

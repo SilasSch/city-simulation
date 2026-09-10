@@ -1,12 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  NPC_INTERACT_PAUSE_TICKS,
+  NPC_INTERACTION_RANGE,
   WORLD_MOVE_STEP,
   WORLD_SPAWN_POSITION,
   WORLD_ZONE_ID,
+  centralSquareNpcGreeting,
+  isNpcWorldInteractPayload,
   isWorldPositionWalkable,
   type WorldDirection,
   type WorldEntity,
-  type WorldInteractionObjectId,
+  type WorldInteractPayload,
   type WorldSnapshotPayload,
   type WorldZoneId,
 } from '@city/game-protocol';
@@ -15,12 +19,22 @@ import { PrismaService } from '../persistence/prisma.service';
 import { ApplicationError } from '../shared/application-error';
 import { SimulationService } from '../simulation/simulation.service';
 import type { EnteredWorldContext } from './world.constants';
+import { WorldPresenceService } from './world-presence.service';
 import { WorldRepository } from './world.repository';
 
 export interface WorldEntry {
   context: EnteredWorldContext;
   snapshot: WorldSnapshotPayload;
 }
+
+export type WorldInteractOutcome =
+  | { kind: 'object'; entity: WorldEntity }
+  | {
+      kind: 'npc';
+      npcCharacterId: string;
+      npcName: string;
+      message: string;
+    };
 
 const MAX_MOVE_RETRIES = 8;
 
@@ -50,6 +64,7 @@ export class WorldService {
     private readonly prisma: PrismaService,
     private readonly worlds: WorldRepository,
     private readonly simulation: SimulationService,
+    private readonly presence: WorldPresenceService,
   ) {}
 
   async enter(
@@ -117,8 +132,8 @@ export class WorldService {
   async interact(
     principal: AuthenticatedPrincipal,
     context: EnteredWorldContext,
-    objectId: WorldInteractionObjectId,
-  ): Promise<WorldEntity> {
+    payload: WorldInteractPayload,
+  ): Promise<WorldInteractOutcome> {
     const selected = await this.worlds.findSelectedCharacter(
       principal.playerProfileId,
       this.prisma,
@@ -136,7 +151,57 @@ export class WorldService {
       );
     }
 
-    return this.simulation.startInteraction(context.characterId, objectId);
+    if (isNpcWorldInteractPayload(payload)) {
+      return this.interactNpc(state.x, state.y, payload.npcCharacterId);
+    }
+
+    const entity = await this.simulation.startInteraction(
+      context.characterId,
+      payload.objectId,
+    );
+    return { kind: 'object', entity };
+  }
+
+  private interactNpc(
+    playerX: number,
+    playerY: number,
+    npcCharacterId: string,
+  ): WorldInteractOutcome {
+    const npc = this.presence.npc(npcCharacterId);
+    if (!npc || npc.kind !== 'npc') {
+      throw new ApplicationError(
+        'INTERACTION_OBJECT_NOT_FOUND',
+        404,
+        'NPC not found',
+      );
+    }
+
+    const distance = Math.hypot(playerX - npc.x, playerY - npc.y);
+    if (distance > NPC_INTERACTION_RANGE) {
+      throw new ApplicationError(
+        'INTERACTION_OUT_OF_RANGE',
+        409,
+        'Move closer before interacting',
+      );
+    }
+
+    const message = centralSquareNpcGreeting(npc.characterId);
+    if (!message) {
+      throw new ApplicationError(
+        'INTERACTION_OBJECT_NOT_FOUND',
+        404,
+        'NPC has nothing to say',
+      );
+    }
+
+    this.presence.pauseNpcInteract(npc.characterId, NPC_INTERACT_PAUSE_TICKS);
+
+    return {
+      kind: 'npc',
+      npcCharacterId: npc.characterId,
+      npcName: npc.name,
+      message,
+    };
   }
 
   async move(

@@ -157,6 +157,10 @@ automatisch ausgewählt (ADR 0009); die Auswahl überlebt Server-Neustarts
   entfernungsgeprüfte Rast-Interaktion. Abschluss gibt 30 Energie; Bewegung,
   letzter Disconnect und Kontextverlust brechen sie ab. Tick-Events projizieren
   Uhr, Energie und Fortschritt auf alle Clients.
+- Dieselbe Command-Familie spricht Central-Square-NPCs an
+  (`npcCharacterId`): der Server prüft die Live-Position inkl. Patrol,
+  liefert sofort ein privates `world-interact-result` (Gruß / Job-Shop-Hinweis)
+  und hält den NPC kurz an. Außerhalb der Range kommt `INTERACTION_OUT_OF_RANGE`.
 - Angular und Phaser mutieren Weltzustand nicht optimistisch. Sie rendern
   Snapshots sowie bestätigte Join-/Leave-/Move-/Update-/Clock-Events.
 
@@ -186,7 +190,8 @@ Aktuelle Nachrichten:
 | Client→Server | `world-enter`            | Zone betreten                                  |
 | Server→Client | `world-snapshot`         | Präsenz, eigene ID und Uhr initialisieren      |
 | Client→Server | `world-move`             | Validierte Bewegungsrichtung anfordern         |
-| Client→Server | `world-interact`         | Bank-Interaktion starten                       |
+| Client→Server | `world-interact`         | POI- oder NPC-Interaktion anfordern            |
+| Server→Client | `world-interact-result`  | Kurzes NPC-Feedback (nur anfragender Client)   |
 | Server→Client | `world-position-changed` | Persistierte Position broadcasten              |
 | Server→Client | `world-entity-joined`    | Online-Entity hinzufügen                       |
 | Server→Client | `world-entity-left`      | Offline-Entity entfernen                       |

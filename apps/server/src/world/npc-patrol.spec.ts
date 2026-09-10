@@ -92,4 +92,28 @@ describe('npc patrol', () => {
 
     expect(sawDeparture).toBe(true);
   });
+
+  it('holds still during interact pause before resuming idle/move', () => {
+    const runtimes = createNpcPatrolRuntimes();
+    const nachbar = CENTRAL_SQUARE_NPCS[0]!;
+    const patrol = CENTRAL_SQUARE_NPC_PATROLS[0]!;
+    let runtime = runtimes.get(nachbar.characterId)!;
+    runtime = {
+      ...runtime,
+      idleTicksRemaining: 0,
+      interactPauseTicksRemaining: 2,
+    };
+
+    const first = advanceNpcPatrol(runtime, patrol);
+    expect(first.moved).toBe(false);
+    expect(first.runtime.interactPauseTicksRemaining).toBe(1);
+    expect(first.runtime.entity.x).toBe(runtime.entity.x);
+
+    const second = advanceNpcPatrol(first.runtime, patrol);
+    expect(second.moved).toBe(false);
+    expect(second.runtime.interactPauseTicksRemaining).toBe(0);
+
+    const third = advanceNpcPatrol(second.runtime, patrol);
+    expect(third.moved).toBe(true);
+  });
 });

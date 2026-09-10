@@ -1,7 +1,11 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { WORLD_ZONE_ID } from '@city/game-protocol';
+import {
+  CENTRAL_SQUARE_NPCS,
+  NPC_INTERACTION_RANGE,
+  WORLD_ZONE_ID,
+} from '@city/game-protocol';
 import { AppModule } from '../app.module';
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal';
 import { AuthService } from '../auth/auth.service';
@@ -9,6 +13,7 @@ import { CharacterService } from '../character/character.service';
 import { PrismaService } from '../persistence/prisma.service';
 import { ApplicationError } from '../shared/application-error';
 import { cleanDatabase } from '../../test/test-database';
+import { WorldPresenceService } from '../world/world-presence.service';
 import { WorldService } from '../world/world.service';
 import { SimulationService } from './simulation.service';
 
@@ -19,6 +24,7 @@ describe('first simulation loop (integration)', () => {
   let prisma: PrismaService;
   let simulation: SimulationService;
   let world: WorldService;
+  let presence: WorldPresenceService;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -31,6 +37,7 @@ describe('first simulation loop (integration)', () => {
     prisma = moduleRef.get(PrismaService);
     simulation = moduleRef.get(SimulationService);
     world = moduleRef.get(WorldService);
+    presence = moduleRef.get(WorldPresenceService);
   });
 
   beforeEach(async () => cleanDatabase(prisma));
@@ -52,7 +59,7 @@ describe('first simulation loop (integration)', () => {
     const entry = await world.enter(principal, WORLD_ZONE_ID);
 
     await expect(
-      world.interact(principal, entry.context, 'bench-south'),
+      world.interact(principal, entry.context, { objectId: 'bench-south' }),
     ).rejects.toMatchObject({
       code: 'INTERACTION_OUT_OF_RANGE',
     } satisfies Partial<ApplicationError>);
@@ -65,14 +72,14 @@ describe('first simulation loop (integration)', () => {
       data: { energy: 40, energyUpdatedAt: simulatedNow },
     });
 
-    const active = await world.interact(
-      principal,
-      entry.context,
-      'bench-south',
-    );
-    expect(active.interaction?.objectId).toBe('bench-south');
+    const active = await world.interact(principal, entry.context, {
+      objectId: 'bench-south',
+    });
+    expect(active.kind).toBe('object');
+    if (active.kind !== 'object') throw new Error('expected object outcome');
+    expect(active.entity.interaction?.objectId).toBe('bench-south');
     await expect(
-      world.interact(principal, entry.context, 'bench-south'),
+      world.interact(principal, entry.context, { objectId: 'bench-south' }),
     ).rejects.toMatchObject({ code: 'INTERACTION_ALREADY_ACTIVE' });
 
     const completionNow = new Date(simulation.clockSnapshot().simulatedTime);
@@ -89,7 +96,7 @@ describe('first simulation loop (integration)', () => {
     expect(completed?.energy).toBeGreaterThan(69.9);
     expect(completed?.energy).toBeLessThanOrEqual(70);
 
-    await world.interact(principal, entry.context, 'bench-south');
+    await world.interact(principal, entry.context, { objectId: 'bench-south' });
     const moved = await world.move(principal, entry.context, 'W');
     expect(moved.interaction).toBeNull();
     expect(
@@ -111,13 +118,13 @@ describe('first simulation loop (integration)', () => {
       data: { x: 40, y: 42, money: 0 },
     });
 
-    const active = await world.interact(
-      principal,
-      entry.context,
-      'kiosk-north',
-    );
-    expect(active.interaction?.objectId).toBe('kiosk-north');
-    expect(active.money).toBe(0);
+    const active = await world.interact(principal, entry.context, {
+      objectId: 'kiosk-north',
+    });
+    expect(active.kind).toBe('object');
+    if (active.kind !== 'object') throw new Error('expected object outcome');
+    expect(active.entity.interaction?.objectId).toBe('kiosk-north');
+    expect(active.entity.money).toBe(0);
 
     const completionNow = new Date(simulation.clockSnapshot().simulatedTime);
     await prisma.characterWorldState.update({
@@ -142,21 +149,75 @@ describe('first simulation loop (integration)', () => {
     });
 
     await expect(
-      world.interact(principal, entry.context, 'snack-east'),
+      world.interact(principal, entry.context, { objectId: 'snack-east' }),
     ).rejects.toMatchObject({ code: 'INSUFFICIENT_FUNDS' });
 
     await prisma.characterWorldState.update({
       where: { characterId: entry.context.characterId },
       data: { money: 15 },
     });
-    const purchased = await world.interact(
-      principal,
-      entry.context,
-      'snack-east',
+    const purchased = await world.interact(principal, entry.context, {
+      objectId: 'snack-east',
+    });
+    expect(purchased.kind).toBe('object');
+    if (purchased.kind !== 'object') throw new Error('expected object outcome');
+    expect(purchased.entity.interaction).toBeNull();
+    expect(purchased.entity.money).toBe(0);
+    expect(purchased.entity.energy).toBeGreaterThanOrEqual(69.9);
+    expect(purchased.entity.energy).toBeLessThanOrEqual(70);
+  });
+
+  it('greets an in-range NPC and rejects out-of-range attempts', async () => {
+    const principal = await player();
+    const entry = await world.enter(principal, WORLD_ZONE_ID);
+    const npc = CENTRAL_SQUARE_NPCS[0]!;
+    const live = presence.npc(npc.characterId);
+    expect(live).not.toBeNull();
+
+    await expect(
+      world.interact(principal, entry.context, {
+        npcCharacterId: npc.characterId,
+      }),
+    ).rejects.toMatchObject({ code: 'INTERACTION_OUT_OF_RANGE' });
+
+    await prisma.characterWorldState.update({
+      where: { characterId: entry.context.characterId },
+      data: { x: live!.x, y: live!.y },
+    });
+
+    const greeted = await world.interact(principal, entry.context, {
+      npcCharacterId: npc.characterId,
+    });
+    expect(greeted).toEqual(
+      expect.objectContaining({
+        kind: 'npc',
+        npcCharacterId: npc.characterId,
+        npcName: npc.name,
+      }),
     );
-    expect(purchased.interaction).toBeNull();
-    expect(purchased.money).toBe(0);
-    expect(purchased.energy).toBeGreaterThanOrEqual(69.9);
-    expect(purchased.energy).toBeLessThanOrEqual(70);
+    if (greeted.kind !== 'npc') throw new Error('expected npc outcome');
+    expect(greeted.message.length).toBeGreaterThan(0);
+    expect(greeted.message.toLowerCase()).toMatch(/kiosk|snack|arbeit/);
+
+    await expect(
+      world.interact(principal, entry.context, {
+        npcCharacterId: '00000000-0000-4000-8000-000000000099',
+      }),
+    ).rejects.toMatchObject({ code: 'INTERACTION_OBJECT_NOT_FOUND' });
+
+    // Far away again — still rejected even after a prior greet.
+    const after = presence.npc(npc.characterId)!;
+    await prisma.characterWorldState.update({
+      where: { characterId: entry.context.characterId },
+      data: {
+        x: Math.min(100, after.x + NPC_INTERACTION_RANGE + 5),
+        y: after.y,
+      },
+    });
+    await expect(
+      world.interact(principal, entry.context, {
+        npcCharacterId: npc.characterId,
+      }),
+    ).rejects.toMatchObject({ code: 'INTERACTION_OUT_OF_RANGE' });
   });
 });

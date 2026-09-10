@@ -13,7 +13,10 @@ import type {
   WorldEntity,
   WorldInteractionObjectId,
 } from '@city/game-protocol';
-import { worldInteractionObject } from '@city/game-protocol';
+import {
+  NPC_INTERACTION_RANGE,
+  worldInteractionObject,
+} from '@city/game-protocol';
 import { GameEngineService } from './game-engine.service';
 import { RealtimeService } from './realtime.service';
 import { WorldStateService } from './world-state.service';
@@ -121,6 +124,19 @@ import { WorldStateService } from './world-state.service';
         color: #fde68a;
         font-size: 0.85rem;
       }
+      .npc-toast {
+        width: 100%;
+        margin: 0;
+        padding: 0.4rem 0.65rem;
+        border-radius: 0.35rem;
+        background: #1e3a5f;
+        color: #dbeafe;
+        font-size: 0.85rem;
+        border: 1px solid #3b82f6;
+      }
+      .npc-toast strong {
+        color: #fde68a;
+      }
       .game-container {
         width: 100%;
         height: 100%;
@@ -186,6 +202,14 @@ import { WorldStateService } from './world-state.service';
               >
                 Snack (−{{ snackPrice }})
               </button>
+              <button
+                type="button"
+                data-testid="npc-talk-action"
+                [disabled]="!!self.interaction || !npcInRange(self)"
+                (click)="talkToNearbyNpc(self)"
+              >
+                Sprechen
+              </button>
             </div>
             @if (self.interaction; as interaction) {
               <p class="interaction-chip" data-testid="interaction-state">
@@ -197,6 +221,12 @@ import { WorldStateService } from './world-state.service';
                   Interaktion:
                 }
                 {{ (interaction.progress * 100).toFixed(0) }} %
+              </p>
+            }
+            @if (world.interactFeedback(); as feedback) {
+              <p class="npc-toast" data-testid="npc-interact-feedback">
+                <strong>{{ feedback.npcName }}:</strong>
+                {{ feedback.message }}
               </p>
             }
           </div>
@@ -254,6 +284,30 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
     const dx = self.x - object.x;
     const dy = self.y - object.y;
     return Math.hypot(dx, dy) <= object.interactionRange;
+  }
+
+  protected nearbyNpc(self: WorldEntity): WorldEntity | null {
+    let best: WorldEntity | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const entity of this.world.entities()) {
+      if (entity.kind !== 'npc') continue;
+      const distance = Math.hypot(self.x - entity.x, self.y - entity.y);
+      if (distance <= NPC_INTERACTION_RANGE && distance < bestDistance) {
+        best = entity;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
+  protected npcInRange(self: WorldEntity): boolean {
+    return this.nearbyNpc(self) !== null;
+  }
+
+  protected talkToNearbyNpc(self: WorldEntity): void {
+    const npc = this.nearbyNpc(self);
+    if (!npc) return;
+    this.world.interactNpc(npc.characterId);
   }
 
   protected simulationTimeText(): string {

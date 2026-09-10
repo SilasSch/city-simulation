@@ -103,4 +103,15 @@ describe('WorldPresenceService', () => {
       presence.entities().find((e) => e.characterId === NACHBAR.characterId),
     ).toEqual(moved[0]);
   });
+
+  it('pauses NPC patrol after interact without dropping the entity', () => {
+    const presence = new WorldPresenceService();
+    const before = presence.npc(NACHBAR.characterId)!;
+    presence.pauseNpcInteract(NACHBAR.characterId, 3);
+
+    for (let i = 0; i < 3; i += 1) {
+      expect(presence.advanceNpcs()).toEqual([]);
+      expect(presence.npc(NACHBAR.characterId)).toEqual(before);
+    }
+  });
 });
