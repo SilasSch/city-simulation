@@ -6,6 +6,7 @@ import {
   type WorldCircleCollider,
   type WorldRectangleCollider,
 } from '@city/game-protocol';
+import { ensureCentralSquareTextures } from './central-square-textures';
 
 export const CENTRAL_SQUARE_VIEWPORT = {
   width: 800,
@@ -73,29 +74,34 @@ const TREES: readonly [number, number][] = [
  * movement rules; those continue to be projected from confirmed world state.
  */
 export function renderCentralSquare(scene: Phaser.Scene): void {
-  const map = scene.add.graphics().setDepth(0);
+  ensureCentralSquareTextures(scene);
+  const map = scene.add.graphics().setDepth(2);
+  const textured = scene.textures.exists('cs-grass');
 
-  // Park lawn (cooler green) vs warm plaza — stronger zone separation.
-  map.fillStyle(0x5f7f54);
-  map.fillRoundedRect(40, 28, 720, 394, 16);
-  map.fillStyle(0x4e6b45, 0.55);
-  map.fillRoundedRect(52, 40, 696, 370, 14);
+  // Soft frame behind tiled world.
+  map.fillStyle(0x243528);
+  map.fillRoundedRect(32, 20, 736, 410, 18);
 
-  // Broad pedestrian approaches (lighter sand).
-  map.fillStyle(0xd2c2a0);
-  map.fillRect(352, 28, 96, 394);
-  map.fillRect(40, 177, 720, 96);
+  // Tiled lawn, paths, plaza (art pass — not flat debug fills).
+  if (textured) {
+    scene.add.tileSprite(400, 225, 720, 394, 'cs-grass').setDepth(0);
+    scene.add.tileSprite(400, 225, 96, 394, 'cs-path').setDepth(1);
+    scene.add.tileSprite(400, 225, 720, 96, 'cs-path').setDepth(1);
+    scene.add.tileSprite(400, 225, 292, 206, 'cs-plaza').setDepth(1);
+  } else {
+    map.fillStyle(0x5f7f54);
+    map.fillRoundedRect(40, 28, 720, 394, 16);
+    map.fillStyle(0xd2c2a0);
+    map.fillRect(352, 28, 96, 394);
+    map.fillRect(40, 177, 720, 96);
+    map.fillStyle(0xe0d3b6);
+    map.fillRoundedRect(254, 122, 292, 206, 20);
+  }
+  map.lineStyle(4, 0x8f7558, 0.85);
+  map.strokeRoundedRect(254, 122, 292, 206, 18);
 
-  // Civic plaza with cobble hatching.
-  map.fillStyle(0x8f7558);
-  map.fillRoundedRect(244, 112, 312, 226, 24);
-  map.fillStyle(0xe0d3b6);
-  map.fillRoundedRect(254, 122, 292, 206, 20);
-  map.lineStyle(2, 0xb9aa89, 0.7);
-  for (let y = 142; y < 322; y += 24) map.lineBetween(260, y, 540, y);
-  for (let x = 280; x < 530; x += 28) map.lineBetween(x, 130, x, 320);
-
-  for (const building of BUILDINGS) drawBuilding(map, building);
+  for (const building of BUILDINGS)
+    drawBuilding(scene, map, building, textured);
   for (const [x, y] of TREES) drawTree(map, x, y);
 
   // Central fountain and four benches give the square a recognizable focus.
@@ -211,37 +217,58 @@ export function renderCentralSquare(scene: Phaser.Scene): void {
 }
 
 function drawBuilding(
+  scene: Phaser.Scene,
   graphics: Phaser.GameObjects.Graphics,
   building: Building,
+  textured: boolean,
 ): void {
-  graphics.fillStyle(0x3d342e, 0.35);
+  graphics.fillStyle(0x1f1712, 0.35);
   graphics.fillRoundedRect(
-    building.x + 5,
-    building.y + 7,
+    building.x + 6,
+    building.y + 8,
     building.width,
     building.height,
     5,
   );
-  graphics.fillStyle(0xe2c99f);
-  graphics.fillRoundedRect(
-    building.x,
-    building.y,
-    building.width,
-    building.height,
-    5,
-  );
-  graphics.fillStyle(building.roof);
-  graphics.fillRect(building.x - 4, building.y - 5, building.width + 8, 24);
-  graphics.fillStyle(0x483a31);
+  if (textured) {
+    scene.add
+      .tileSprite(
+        building.x + building.width / 2,
+        building.y + building.height / 2,
+        building.width,
+        building.height,
+        'cs-wall',
+      )
+      .setDepth(2);
+    scene.add
+      .tileSprite(
+        building.x + building.width / 2,
+        building.y - 2,
+        building.width + 10,
+        18,
+        'cs-roof',
+      )
+      .setTint(building.roof)
+      .setDepth(3);
+  } else {
+    graphics.fillStyle(0xe2c99f);
+    graphics.fillRoundedRect(
+      building.x,
+      building.y,
+      building.width,
+      building.height,
+      5,
+    );
+    graphics.fillStyle(building.roof);
+    graphics.fillRect(building.x - 4, building.y - 5, building.width + 8, 24);
+  }
+  graphics.fillStyle(0x3b2d26);
   graphics.fillRect(
     building.x + building.width / 2 - 10,
-    building.y + building.height - 25,
+    building.y + building.height - 26,
     20,
-    25,
+    26,
   );
-  graphics.fillStyle(0x90b6bd);
-  graphics.fillRect(building.x + 25, building.y + 35, 28, 18);
-  graphics.fillRect(building.x + building.width - 53, building.y + 35, 28, 18);
 }
 
 function drawTree(
@@ -249,11 +276,15 @@ function drawTree(
   x: number,
   y: number,
 ): void {
-  graphics.fillStyle(0x4f3c2c);
-  graphics.fillRect(x - 3, y, 6, 16);
-  graphics.fillStyle(0x315d3d);
-  graphics.fillCircle(x, y - 6, 17);
-  graphics.fillStyle(0x477a4b);
-  graphics.fillCircle(x - 7, y - 10, 10);
-  graphics.fillCircle(x + 8, y - 8, 11);
+  graphics.fillStyle(0x0f172a, 0.2);
+  graphics.fillEllipse(x + 2, y + 14, 22, 8);
+  graphics.fillStyle(0x5b4030);
+  graphics.fillRect(x - 3, y, 6, 18);
+  graphics.fillStyle(0x245536);
+  graphics.fillCircle(x, y - 8, 18);
+  graphics.fillStyle(0x367448);
+  graphics.fillCircle(x - 9, y - 12, 11);
+  graphics.fillCircle(x + 10, y - 10, 12);
+  graphics.fillStyle(0x52a05f, 0.85);
+  graphics.fillCircle(x + 2, y - 16, 8);
 }
