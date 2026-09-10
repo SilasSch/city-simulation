@@ -77,6 +77,38 @@ export class WorldRepository {
     });
   }
 
+  /**
+   * Atomically moves a character into another zone at the destination spawn.
+   * Clears any in-progress interaction and bumps revision.
+   */
+  async transition(
+    characterId: string,
+    zoneId: string,
+    x: number,
+    y: number,
+    client: DatabaseClient,
+  ): Promise<StoredWorldState> {
+    return client.characterWorldState.update({
+      where: { characterId },
+      data: {
+        zoneId,
+        x,
+        y,
+        revision: { increment: 1 },
+        interactionObjectId: null,
+        interactionStartedAt: null,
+        interactionEndsAt: null,
+      },
+      select: {
+        characterId: true,
+        zoneId: true,
+        x: true,
+        y: true,
+        revision: true,
+      },
+    });
+  }
+
   findState(
     characterId: string,
     client: DatabaseClient,

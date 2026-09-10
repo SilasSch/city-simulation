@@ -12,6 +12,8 @@ import {
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
   WORLD_ZONE_ID,
+  MARKET_LANE_ZONE_ID,
+  MARKET_LANE_SPAWN_POSITION,
   createMessage,
   parseServerMessage,
 } from '@city/game-protocol';
@@ -49,6 +51,7 @@ describe('WorldStateService', () => {
     sendWorldEnter: ReturnType<typeof vi.fn>;
     sendWorldInteract: ReturnType<typeof vi.fn>;
     sendWorldMove: ReturnType<typeof vi.fn>;
+    sendWorldTransition: ReturnType<typeof vi.fn>;
   };
   let world: WorldStateService;
 
@@ -62,6 +65,7 @@ describe('WorldStateService', () => {
       sendWorldEnter: vi.fn(),
       sendWorldInteract: vi.fn(),
       sendWorldMove: vi.fn(),
+      sendWorldTransition: vi.fn(),
     };
 
     TestBed.configureTestingModule({
@@ -353,5 +357,67 @@ describe('WorldStateService', () => {
       ),
     );
     expect(world.interactFeedback()?.message).toContain('Kiosk');
+  });
+
+  it('sends portal transition and applies the confirmed zone snapshot', () => {
+    selected.set(CHARACTER_A);
+    connectionId.set(CONNECTION_A);
+    TestBed.flushEffects();
+
+    serverMessages.next(
+      parsedEvent(
+        createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
+          zoneId: WORLD_ZONE_ID,
+          selfCharacterId: CHARACTER_A.id,
+          clock: {
+            simulatedTime: '2026-01-01T00:00:00.000Z',
+            speed: 60,
+          },
+          entities: [
+            {
+              characterId: CHARACTER_A.id,
+              name: CHARACTER_A.name,
+              x: 95,
+              y: 50,
+              energy: 90,
+              money: 0,
+              interaction: null,
+            },
+          ],
+        }),
+      ),
+    );
+
+    world.transition('central-square-east');
+    expect(realtimeStub.sendWorldTransition).toHaveBeenCalledWith(
+      'central-square-east',
+    );
+    // No optimistic jump — zone stays until snapshot.
+    expect(world.zoneId()).toBe(WORLD_ZONE_ID);
+
+    serverMessages.next(
+      parsedEvent(
+        createMessage(WORLD_SNAPSHOT_EVENT_TYPE, {
+          zoneId: MARKET_LANE_ZONE_ID,
+          selfCharacterId: CHARACTER_A.id,
+          clock: {
+            simulatedTime: '2026-01-01T00:00:00.000Z',
+            speed: 60,
+          },
+          entities: [
+            {
+              characterId: CHARACTER_A.id,
+              name: CHARACTER_A.name,
+              ...MARKET_LANE_SPAWN_POSITION,
+              energy: 90,
+              money: 0,
+              interaction: null,
+            },
+          ],
+        }),
+      ),
+    );
+    expect(world.zoneId()).toBe(MARKET_LANE_ZONE_ID);
+    expect(world.selfEntity()).toMatchObject(MARKET_LANE_SPAWN_POSITION);
   });
 });

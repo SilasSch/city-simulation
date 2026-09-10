@@ -7,11 +7,13 @@ import {
   centralSquareNpcGreeting,
   isNpcWorldInteractPayload,
   isWorldPositionWalkable,
+  worldZonePortal,
   worldZoneSpawn,
   type WorldDirection,
   type WorldEntity,
   type WorldInteractPayload,
   type WorldSnapshotPayload,
+  type WorldTransitionPayload,
   type WorldZoneId,
 } from '@city/game-protocol';
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal';
@@ -123,6 +125,85 @@ export class WorldService {
       event: 'world-entered',
       characterId: entry.context.characterId,
       zoneId,
+    });
+    return entry;
+  }
+
+  /**
+   * Server-authoritative portal transition: range-check in the source zone,
+   * then atomically set zoneId + destination spawn. Gateway leaves/joins rooms.
+   */
+  async transition(
+    principal: AuthenticatedPrincipal,
+    context: EnteredWorldContext,
+    payload: WorldTransitionPayload,
+  ): Promise<WorldEntry> {
+    const portal = worldZonePortal(payload.portalId);
+    const spawn = worldZoneSpawn(portal.toZoneId);
+
+    const contextAfter = await this.prisma.$transaction(async (tx) => {
+      const selected = await this.worlds.findSelectedCharacter(
+        principal.playerProfileId,
+        tx,
+      );
+      const state = await this.worlds.findState(context.characterId, tx);
+      if (
+        selected?.id !== context.characterId ||
+        !state ||
+        state.zoneId !== context.zoneId
+      ) {
+        throw new ApplicationError(
+          'WORLD_NOT_ENTERED',
+          409,
+          'Enter the world with the currently selected character first',
+        );
+      }
+
+      if (state.zoneId !== portal.fromZoneId) {
+        throw new ApplicationError(
+          'INTERACTION_OBJECT_NOT_FOUND',
+          404,
+          'Portal is not available in this zone',
+        );
+      }
+
+      const distance = Math.hypot(state.x - portal.x, state.y - portal.y);
+      if (distance > portal.interactionRange) {
+        throw new ApplicationError(
+          'INTERACTION_OUT_OF_RANGE',
+          409,
+          'Move closer to the portal before transitioning',
+        );
+      }
+
+      await this.worlds.transition(
+        context.characterId,
+        portal.toZoneId,
+        spawn.x,
+        spawn.y,
+        tx,
+      );
+      return {
+        characterId: context.characterId,
+        zoneId: portal.toZoneId,
+      } satisfies EnteredWorldContext;
+    });
+
+    const entry: WorldEntry = {
+      context: contextAfter,
+      snapshot: {
+        zoneId: contextAfter.zoneId,
+        selfCharacterId: contextAfter.characterId,
+        clock: this.simulation.clockSnapshot(),
+        entities: await this.simulation.entitiesInZone(contextAfter.zoneId),
+      },
+    };
+    this.logger.log({
+      event: 'world-transitioned',
+      characterId: entry.context.characterId,
+      portalId: portal.id,
+      fromZoneId: portal.fromZoneId,
+      toZoneId: portal.toZoneId,
     });
     return entry;
   }

@@ -11,6 +11,7 @@ import {
   WORLD_INTERACT_COMMAND_TYPE,
   WORLD_INTERACT_RESULT_EVENT_TYPE,
   WORLD_MOVE_COMMAND_TYPE,
+  WORLD_TRANSITION_COMMAND_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
   connectPayloadSchema,
@@ -25,6 +26,7 @@ import {
   worldInteractPayloadSchema,
   worldInteractResultPayloadSchema,
   worldMovePayloadSchema,
+  worldTransitionPayloadSchema,
   worldPositionChangedPayloadSchema,
   worldSnapshotPayloadSchema,
 } from './protocol';
@@ -42,6 +44,7 @@ import type {
   WorldInteractPayload,
   WorldInteractResultPayload,
   WorldMovePayload,
+  WorldTransitionPayload,
   WorldPositionChangedPayload,
   WorldSnapshotPayload,
 } from './protocol';
@@ -67,6 +70,11 @@ export type ParsedMessage =
       kind: typeof WORLD_INTERACT_COMMAND_TYPE;
       envelope: ProtocolEnvelope;
       payload: WorldInteractPayload;
+    }
+  | {
+      kind: typeof WORLD_TRANSITION_COMMAND_TYPE;
+      envelope: ProtocolEnvelope;
+      payload: WorldTransitionPayload;
     };
 
 /** Erfolgreich geparstes und vollständig validiertes Serverevent. */
@@ -224,6 +232,20 @@ export function parseIncomingMessage(raw: unknown): ParseResult {
       return {
         ok: true,
         kind: WORLD_INTERACT_COMMAND_TYPE,
+        envelope,
+        payload: payloadResult.data,
+      };
+    }
+    case WORLD_TRANSITION_COMMAND_TYPE: {
+      const payloadResult = worldTransitionPayloadSchema.safeParse(
+        envelope.payload,
+      );
+      if (!payloadResult.success) {
+        return invalidPayload(envelope, 'world-transition command');
+      }
+      return {
+        ok: true,
+        kind: WORLD_TRANSITION_COMMAND_TYPE,
         envelope,
         payload: payloadResult.data,
       };

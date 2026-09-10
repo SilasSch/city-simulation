@@ -1,10 +1,16 @@
 import { Injectable } from '@angular/core';
 import Phaser from 'phaser';
 import {
+  MARKET_LANE_ZONE_ID,
   WORLD_COORDINATE_MAX,
   WORLD_COORDINATE_MIN,
+  WORLD_ZONE_ID,
 } from '@city/game-protocol';
-import type { WorldDirection, WorldEntity } from '@city/game-protocol';
+import type {
+  WorldDirection,
+  WorldEntity,
+  WorldZoneId,
+} from '@city/game-protocol';
 import {
   CENTRAL_SQUARE_BOUNDS,
   CENTRAL_SQUARE_ENTITY_INSET,
@@ -17,6 +23,7 @@ import { isEditableTarget, worldDirectionForKey } from './world-input';
 export interface WorldScenePort {
   readonly entities: () => readonly WorldEntity[];
   readonly selfCharacterId: () => string | null;
+  readonly zoneId: () => WorldZoneId | null;
   move(direction: WorldDirection): void;
 }
 
@@ -34,6 +41,8 @@ interface EntityMarker {
  */
 class WorldScene extends Phaser.Scene {
   private readonly markers = new Map<string, EntityMarker>();
+  private zoneBanner: Phaser.GameObjects.Text | null = null;
+  private renderedZoneId: WorldZoneId | null = null;
 
   constructor(
     private readonly onBoot: () => void,
@@ -45,6 +54,16 @@ class WorldScene extends Phaser.Scene {
   create(): void {
     ensureCentralSquareTextures(this);
     renderCentralSquare(this);
+    this.zoneBanner = this.add
+      .text(12, CENTRAL_SQUARE_VIEWPORT.height - 28, '', {
+        color: '#e2e8f0',
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '14px',
+        backgroundColor: '#0f172a99',
+        padding: { x: 8, y: 4 },
+      })
+      .setDepth(20)
+      .setScrollFactor(0);
 
     // Full 16:9 stage shows the whole square — no zoom crop / chase-cam.
     this.cameras.main.setBounds(
@@ -65,7 +84,25 @@ class WorldScene extends Phaser.Scene {
   }
 
   override update(): void {
+    this.syncZoneStub();
     this.syncMarkers();
+  }
+
+  /** #67 owns full market-lane art; until then only a zone banner swaps. */
+  private syncZoneStub(): void {
+    if (!this.world || !this.zoneBanner) return;
+    const zoneId = this.world.zoneId();
+    if (zoneId === this.renderedZoneId) return;
+    this.renderedZoneId = zoneId;
+    if (zoneId === MARKET_LANE_ZONE_ID) {
+      this.zoneBanner.setText('Zone: Marktgasse (Art stub — #67)');
+      this.cameras.main.setBackgroundColor('#2a1f14');
+    } else if (zoneId === WORLD_ZONE_ID) {
+      this.zoneBanner.setText('Zone: Zentraler Platz');
+      this.cameras.main.setBackgroundColor('#16251c');
+    } else {
+      this.zoneBanner.setText(zoneId ? `Zone: ${zoneId}` : '');
+    }
   }
 
   private readonly handleKeydown = (event: KeyboardEvent): void => {

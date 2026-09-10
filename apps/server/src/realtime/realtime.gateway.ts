@@ -21,6 +21,7 @@ import {
   WORLD_MOVE_COMMAND_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
+  WORLD_TRANSITION_COMMAND_TYPE,
   WORLD_ZONE_ID,
   WORLD_ZONE_IDS,
   type ProtocolErrorCode,
@@ -39,7 +40,7 @@ import {
   WorldPresenceService,
   type PresenceDeparture,
 } from '../world/world-presence.service';
-import { WorldService } from '../world/world.service';
+import { WorldService, type WorldEntry } from '../world/world.service';
 import { RealtimeMessageService } from './realtime-message.service';
 
 /** Socket.IO-Event-Name für alle Protokollnachrichten (beide Richtungen). */
@@ -224,44 +225,36 @@ export class RealtimeGateway
             socketData.principal,
             parsed.payload.zoneId,
           );
-          const self = entry.snapshot.entities.find(
-            (entity) => entity.characterId === entry.context.characterId,
-          );
-          if (!self) {
+          await this.applyWorldEntry(client, entry, parsed.envelope.requestId);
+          return;
+        }
+        case WORLD_TRANSITION_COMMAND_TYPE: {
+          if (!socketData.world) {
             throw new ApplicationError(
-              'PERSISTENCE_ERROR',
-              503,
-              'Entered character is missing from the world snapshot',
+              'WORLD_NOT_ENTERED',
+              409,
+              'Enter the world before transitioning',
             );
           }
+          const previousContext = socketData.world;
+          const previousZone = previousContext.zoneId;
+          // Validate + persist first so a failed range check keeps the socket in
+          // the current room/presence without tearing down the world session.
+          const entry = await this.world.transition(
+            socketData.principal,
+            previousContext,
+            parsed.payload,
+          );
 
-          const room = worldRoom(entry.context.zoneId);
-          const firstSocketForCharacter = this.presence.enter(
-            client.id,
-            self,
-            entry.context.zoneId,
-          );
-          await client.join(room);
-          socketData.world = entry.context;
-          client.emit(
-            PROTOCOL_CHANNEL,
-            createMessage(
-              WORLD_SNAPSHOT_EVENT_TYPE,
-              {
-                ...entry.snapshot,
-                entities: this.presence.entities(entry.context.zoneId),
-              },
-              parsed.envelope.requestId,
-            ),
-          );
-          if (firstSocketForCharacter) {
-            client
-              .to(room)
-              .emit(
-                PROTOCOL_CHANNEL,
-                createMessage(WORLD_ENTITY_JOINED_EVENT_TYPE, { entity: self }),
-              );
+          await client.leave(worldRoom(previousZone));
+          const departure = this.presence.leave(client.id);
+          if (departure?.lastSocket) {
+            await this.simulation.abortInteraction(departure.characterId);
           }
+          this.announceDeparture(client, departure);
+          delete socketData.world;
+
+          await this.applyWorldEntry(client, entry, parsed.envelope.requestId);
           return;
         }
         case WORLD_INTERACT_COMMAND_TYPE: {
@@ -409,6 +402,56 @@ export class RealtimeGateway
         'Simulation tick failed',
         error instanceof Error ? error.stack : String(error),
       );
+    }
+  }
+
+  /**
+   * Joins the zone room, registers presence, emits snapshot to the requester
+   * and entity-joined to peers when this is the character's first live socket.
+   */
+  private async applyWorldEntry(
+    client: Socket,
+    entry: WorldEntry,
+    requestId?: string,
+  ): Promise<void> {
+    const socketData = client.data as SocketData;
+    const self = entry.snapshot.entities.find(
+      (entity) => entity.characterId === entry.context.characterId,
+    );
+    if (!self) {
+      throw new ApplicationError(
+        'PERSISTENCE_ERROR',
+        503,
+        'Entered character is missing from the world snapshot',
+      );
+    }
+
+    const room = worldRoom(entry.context.zoneId);
+    const firstSocketForCharacter = this.presence.enter(
+      client.id,
+      self,
+      entry.context.zoneId,
+    );
+    await client.join(room);
+    socketData.world = entry.context;
+    client.emit(
+      PROTOCOL_CHANNEL,
+      createMessage(
+        WORLD_SNAPSHOT_EVENT_TYPE,
+        {
+          ...entry.snapshot,
+          entities: this.presence.entities(entry.context.zoneId),
+        },
+        requestId,
+      ),
+    );
+    if (firstSocketForCharacter) {
+      client
+        .to(room)
+        .emit(
+          PROTOCOL_CHANNEL,
+          createMessage(WORLD_ENTITY_JOINED_EVENT_TYPE, { entity: self }),
+        );
     }
   }
 
