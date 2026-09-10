@@ -17,6 +17,7 @@ import {
   WORLD_ENTITY_LEFT_EVENT_TYPE,
   WORLD_ENTITY_UPDATED_EVENT_TYPE,
   WORLD_INTERACT_COMMAND_TYPE,
+  WORLD_INTERACT_RESULT_EVENT_TYPE,
   WORLD_MOVE_COMMAND_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
@@ -261,18 +262,36 @@ export class RealtimeGateway
               'Enter the world before interacting',
             );
           }
-          const entity = await this.world.interact(
+          const outcome = await this.world.interact(
             socketData.principal,
             socketData.world,
-            parsed.payload.objectId,
+            parsed.payload,
           );
-          this.presence.update(entity);
-          client.nsp
-            .to(WORLD_ROOM)
-            .emit(
+          if (outcome.kind === 'object') {
+            this.presence.update(outcome.entity);
+            client.nsp.to(WORLD_ROOM).emit(
               PROTOCOL_CHANNEL,
-              createMessage(WORLD_ENTITY_UPDATED_EVENT_TYPE, { entity }),
+              createMessage(WORLD_ENTITY_UPDATED_EVENT_TYPE, {
+                entity: outcome.entity,
+              }),
             );
+            return;
+          }
+
+          // NPC greet is immediate, private feedback to the requesting client.
+          client.emit(
+            PROTOCOL_CHANNEL,
+            createMessage(
+              WORLD_INTERACT_RESULT_EVENT_TYPE,
+              {
+                kind: 'npc-greet',
+                npcCharacterId: outcome.npcCharacterId,
+                npcName: outcome.npcName,
+                message: outcome.message,
+              },
+              parsed.envelope.requestId,
+            ),
+          );
           return;
         }
         case WORLD_MOVE_COMMAND_TYPE: {

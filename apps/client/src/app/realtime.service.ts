@@ -11,6 +11,7 @@ import {
   WORLD_ENTITY_LEFT_EVENT_TYPE,
   WORLD_ENTITY_UPDATED_EVENT_TYPE,
   WORLD_INTERACT_COMMAND_TYPE,
+  WORLD_INTERACT_RESULT_EVENT_TYPE,
   WORLD_MOVE_COMMAND_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
@@ -26,7 +27,7 @@ import type {
   ParsedServerMessage,
   ProtocolErrorPayload,
   WorldDirection,
-  WorldInteractionObjectId,
+  WorldInteractPayload,
   WorldZoneId,
 } from '@city/game-protocol';
 
@@ -110,9 +111,9 @@ export class RealtimeService implements OnDestroy {
     this.emitValidated(WORLD_ENTER_COMMAND_TYPE, payload);
   }
 
-  sendWorldInteract(objectId: WorldInteractionObjectId): void {
+  sendWorldInteract(target: WorldInteractPayload): void {
     if (this.connectionState() !== 'connected') return;
-    const payload = worldInteractPayloadSchema.parse({ objectId });
+    const payload = worldInteractPayloadSchema.parse(target);
     this.emitValidated(WORLD_INTERACT_COMMAND_TYPE, payload);
   }
 
@@ -160,6 +161,7 @@ export class RealtimeService implements OnDestroy {
       case WORLD_ENTITY_JOINED_EVENT_TYPE:
       case WORLD_ENTITY_LEFT_EVENT_TYPE:
       case WORLD_ENTITY_UPDATED_EVENT_TYPE:
+      case WORLD_INTERACT_RESULT_EVENT_TYPE:
       case SIMULATION_CLOCK_EVENT_TYPE:
         this.serverMessageSubject.next(parsed);
         return;

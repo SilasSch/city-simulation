@@ -11,7 +11,12 @@ import {
   WORLD_SNAPSHOT_EVENT_TYPE,
   WORLD_ZONE_ID,
   CENTRAL_SQUARE_NPCS,
+  CENTRAL_SQUARE_NPC_GREETINGS,
   CENTRAL_SQUARE_NPC_PATROLS,
+  WORLD_INTERACT_COMMAND_TYPE,
+  WORLD_INTERACT_RESULT_EVENT_TYPE,
+  worldInteractPayloadSchema,
+  worldInteractResultPayloadSchema,
   connectionEstablishedPayloadSchema,
   connectPayloadSchema,
   createMessage,
@@ -168,6 +173,32 @@ describe('protocol schemas', () => {
       }
     }
   });
+
+  it('accepts world-interact payloads for objects and NPCs', () => {
+    expect(
+      worldInteractPayloadSchema.safeParse({ objectId: 'bench-south' }).success,
+    ).toBe(true);
+    expect(
+      worldInteractPayloadSchema.safeParse({
+        npcCharacterId: CENTRAL_SQUARE_NPCS[0]!.characterId,
+      }).success,
+    ).toBe(true);
+    expect(worldInteractPayloadSchema.safeParse({}).success).toBe(false);
+    expect(
+      CENTRAL_SQUARE_NPC_GREETINGS[CENTRAL_SQUARE_NPCS[0]!.characterId],
+    ).toMatch(/Kiosk|Snack/);
+  });
+
+  it('validates world-interact-result greet payloads', () => {
+    expect(
+      worldInteractResultPayloadSchema.safeParse({
+        kind: 'npc-greet',
+        npcCharacterId: CENTRAL_SQUARE_NPCS[0]!.characterId,
+        npcName: 'Nachbar',
+        message: 'Hallo!',
+      }).success,
+    ).toBe(true);
+  });
 });
 
 describe('parseIncomingMessage', () => {
@@ -195,6 +226,35 @@ describe('parseIncomingMessage', () => {
 
     expect(enter.ok && enter.kind).toBe(WORLD_ENTER_COMMAND_TYPE);
     expect(move.ok && move.kind).toBe(WORLD_MOVE_COMMAND_TYPE);
+  });
+
+  it('parses world-interact object and npc commands', () => {
+    const objectInteract = parseIncomingMessage(
+      createMessage(WORLD_INTERACT_COMMAND_TYPE, { objectId: 'kiosk-north' }),
+    );
+    const npcInteract = parseIncomingMessage(
+      createMessage(WORLD_INTERACT_COMMAND_TYPE, {
+        npcCharacterId: CENTRAL_SQUARE_NPCS[0]!.characterId,
+      }),
+    );
+    expect(objectInteract.ok && objectInteract.kind).toBe(
+      WORLD_INTERACT_COMMAND_TYPE,
+    );
+    expect(npcInteract.ok && npcInteract.kind).toBe(
+      WORLD_INTERACT_COMMAND_TYPE,
+    );
+  });
+
+  it('parses world-interact-result events', () => {
+    const result = parseServerMessage(
+      createMessage(WORLD_INTERACT_RESULT_EVENT_TYPE, {
+        kind: 'npc-greet',
+        npcCharacterId: CENTRAL_SQUARE_NPCS[0]!.characterId,
+        npcName: 'Nachbar',
+        message: 'Hallo!',
+      }),
+    );
+    expect(result.ok && result.kind).toBe(WORLD_INTERACT_RESULT_EVENT_TYPE);
   });
 
   it('rejects invalid zones and movement directions', () => {

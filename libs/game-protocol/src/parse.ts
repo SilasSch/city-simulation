@@ -9,6 +9,7 @@ import {
   WORLD_ENTITY_LEFT_EVENT_TYPE,
   WORLD_ENTITY_UPDATED_EVENT_TYPE,
   WORLD_INTERACT_COMMAND_TYPE,
+  WORLD_INTERACT_RESULT_EVENT_TYPE,
   WORLD_MOVE_COMMAND_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
@@ -22,6 +23,7 @@ import {
   worldEntityLeftPayloadSchema,
   worldEntityUpdatedPayloadSchema,
   worldInteractPayloadSchema,
+  worldInteractResultPayloadSchema,
   worldMovePayloadSchema,
   worldPositionChangedPayloadSchema,
   worldSnapshotPayloadSchema,
@@ -38,6 +40,7 @@ import type {
   WorldEntityLeftPayload,
   WorldEntityUpdatedPayload,
   WorldInteractPayload,
+  WorldInteractResultPayload,
   WorldMovePayload,
   WorldPositionChangedPayload,
   WorldSnapshotPayload,
@@ -102,6 +105,11 @@ export type ParsedServerMessage =
       kind: typeof WORLD_ENTITY_UPDATED_EVENT_TYPE;
       envelope: ProtocolEnvelope;
       payload: WorldEntityUpdatedPayload;
+    }
+  | {
+      kind: typeof WORLD_INTERACT_RESULT_EVENT_TYPE;
+      envelope: ProtocolEnvelope;
+      payload: WorldInteractResultPayload;
     }
   | {
       kind: typeof SIMULATION_CLOCK_EVENT_TYPE;
@@ -334,6 +342,20 @@ export function parseServerMessage(raw: unknown): ParseServerResult {
       return {
         ok: true,
         kind: WORLD_ENTITY_UPDATED_EVENT_TYPE,
+        envelope,
+        payload: payloadResult.data,
+      };
+    }
+    case WORLD_INTERACT_RESULT_EVENT_TYPE: {
+      const payloadResult = worldInteractResultPayloadSchema.safeParse(
+        envelope.payload,
+      );
+      if (!payloadResult.success) {
+        return invalidPayload(envelope, 'world-interact-result event');
+      }
+      return {
+        ok: true,
+        kind: WORLD_INTERACT_RESULT_EVENT_TYPE,
         envelope,
         payload: payloadResult.data,
       };

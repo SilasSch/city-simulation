@@ -78,6 +78,24 @@ export class WorldPresenceService {
     if (presence) presence.entity = entity;
   }
 
+  /** Live NPC entity by characterId, or null if unknown. */
+  npc(characterId: string): WorldEntity | null {
+    return this.npcRuntimes.get(characterId)?.entity ?? null;
+  }
+
+  /**
+   * Pauses patrol for a few sim ticks after a greet so the NPC holds still.
+   * No-op for unknown characterIds.
+   */
+  pauseNpcInteract(characterId: string, ticks: number): void {
+    const runtime = this.npcRuntimes.get(characterId);
+    if (!runtime) return;
+    this.npcRuntimes.set(characterId, {
+      ...runtime,
+      interactPauseTicksRemaining: Math.max(0, Math.floor(ticks)),
+    });
+  }
+
   /** Advances zone NPC patrols; returns entities that changed position. */
   advanceNpcs(): WorldEntity[] {
     return tickNpcPatrols(this.npcRuntimes);
