@@ -1,25 +1,30 @@
 import Phaser from 'phaser';
 import {
   CENTRAL_SQUARE_COLLIDERS,
-  WORLD_COORDINATE_MAX,
   WORLD_INTERACTION_OBJECTS,
+  WORLD_ZONE_ID,
   type WorldCircleCollider,
   type WorldRectangleCollider,
 } from '@city/game-protocol';
 import { ensureCentralSquareTextures } from './central-square-textures';
+import {
+  WORLD_MAP_BOUNDS,
+  WORLD_MAP_ENTITY_INSET,
+  WORLD_VIEWPORT,
+  createZoneMapTracker,
+  renderZonePortals,
+  worldMapRangeToPixels,
+  worldMapX,
+  worldMapY,
+  type ZoneMapHandle,
+} from './world-map-layout';
 
-export const CENTRAL_SQUARE_VIEWPORT = {
-  width: 800,
-  height: 450,
-} as const;
-
-export const CENTRAL_SQUARE_BOUNDS = new Phaser.Geom.Rectangle(
-  40,
-  28,
-  720,
-  394,
-);
-export const CENTRAL_SQUARE_ENTITY_INSET = 26;
+/** @deprecated Prefer WORLD_VIEWPORT — kept for existing imports. */
+export const CENTRAL_SQUARE_VIEWPORT = WORLD_VIEWPORT;
+/** @deprecated Prefer WORLD_MAP_BOUNDS — kept for existing imports. */
+export const CENTRAL_SQUARE_BOUNDS = WORLD_MAP_BOUNDS;
+/** @deprecated Prefer WORLD_MAP_ENTITY_INSET — kept for existing imports. */
+export const CENTRAL_SQUARE_ENTITY_INSET = WORLD_MAP_ENTITY_INSET;
 
 interface Building {
   readonly x: number;
@@ -29,7 +34,6 @@ interface Building {
   readonly roof: number;
 }
 
-const MAP_CONTENT = { x: 62, y: 48, width: 676, height: 354 } as const;
 const BUILDING_ROOFS = [0x9b5545, 0x725066, 0x6d5945, 0x526656] as const;
 const BUILDING_COLLIDERS = CENTRAL_SQUARE_COLLIDERS.filter(
   (collider): collider is WorldRectangleCollider =>
@@ -40,20 +44,12 @@ const FOUNTAIN_COLLIDER = CENTRAL_SQUARE_COLLIDERS.find(
     collider.id === 'central-fountain' && collider.kind === 'circle',
 );
 
-function mapX(value: number): number {
-  return MAP_CONTENT.x + (value / WORLD_COORDINATE_MAX) * MAP_CONTENT.width;
-}
-
-function mapY(value: number): number {
-  return MAP_CONTENT.y + (value / WORLD_COORDINATE_MAX) * MAP_CONTENT.height;
-}
-
 const BUILDINGS: readonly Building[] = BUILDING_COLLIDERS.map(
   (collider, index) => ({
-    x: mapX(collider.minX),
-    y: mapY(collider.minY),
-    width: mapX(collider.maxX) - mapX(collider.minX),
-    height: mapY(collider.maxY) - mapY(collider.minY),
+    x: worldMapX(collider.minX),
+    y: worldMapY(collider.minY),
+    width: worldMapX(collider.maxX) - worldMapX(collider.minX),
+    height: worldMapY(collider.maxY) - worldMapY(collider.minY),
     roof: BUILDING_ROOFS[index] ?? 0x725066,
   }),
 );
@@ -73,9 +69,10 @@ const TREES: readonly [number, number][] = [
  * Static, decorative map projection. It deliberately owns no entities or
  * movement rules; those continue to be projected from confirmed world state.
  */
-export function renderCentralSquare(scene: Phaser.Scene): void {
+export function renderCentralSquare(scene: Phaser.Scene): ZoneMapHandle {
   ensureCentralSquareTextures(scene);
-  const map = scene.add.graphics().setDepth(2);
+  const { track, handle } = createZoneMapTracker();
+  const map = track(scene.add.graphics().setDepth(2));
   const textured = scene.textures.exists('cs-grass');
 
   // Soft frame behind tiled world.
@@ -84,10 +81,10 @@ export function renderCentralSquare(scene: Phaser.Scene): void {
 
   // Tiled lawn, paths, plaza (art pass — not flat debug fills).
   if (textured) {
-    scene.add.tileSprite(400, 225, 720, 394, 'cs-grass').setDepth(0);
-    scene.add.tileSprite(400, 225, 96, 394, 'cs-path').setDepth(1);
-    scene.add.tileSprite(400, 225, 720, 96, 'cs-path').setDepth(1);
-    scene.add.tileSprite(400, 225, 292, 206, 'cs-plaza').setDepth(1);
+    track(scene.add.tileSprite(400, 225, 720, 394, 'cs-grass').setDepth(0));
+    track(scene.add.tileSprite(400, 225, 96, 394, 'cs-path').setDepth(1));
+    track(scene.add.tileSprite(400, 225, 720, 96, 'cs-path').setDepth(1));
+    track(scene.add.tileSprite(400, 225, 292, 206, 'cs-plaza').setDepth(1));
   } else {
     map.fillStyle(0x5f7f54);
     map.fillRoundedRect(40, 28, 720, 394, 16);
@@ -101,16 +98,14 @@ export function renderCentralSquare(scene: Phaser.Scene): void {
   map.strokeRoundedRect(254, 122, 292, 206, 18);
 
   for (const building of BUILDINGS)
-    drawBuilding(scene, map, building, textured);
+    drawBuilding(scene, map, building, textured, track);
   for (const [x, y] of TREES) drawTree(map, x, y);
 
   // Central fountain and four benches give the square a recognizable focus.
   // The fountain position and footprint come from the shared collision model.
-  const fountainX = mapX(FOUNTAIN_COLLIDER?.x ?? 50);
-  const fountainY = mapY(FOUNTAIN_COLLIDER?.y ?? 50);
-  const fountainRadius =
-    ((FOUNTAIN_COLLIDER?.radius ?? 7) / WORLD_COORDINATE_MAX) *
-    MAP_CONTENT.width;
+  const fountainX = worldMapX(FOUNTAIN_COLLIDER?.x ?? 50);
+  const fountainY = worldMapY(FOUNTAIN_COLLIDER?.y ?? 50);
+  const fountainRadius = worldMapRangeToPixels(FOUNTAIN_COLLIDER?.radius ?? 7);
   map.fillStyle(0x746b62);
   map.fillCircle(fountainX, fountainY, fountainRadius);
   map.fillStyle(0x75b8c7);
@@ -126,9 +121,6 @@ export function renderCentralSquare(scene: Phaser.Scene): void {
   map.fillRoundedRect(289, 290, 9, 45, 3);
   map.fillRoundedRect(502, 115, 9, 45, 3);
 
-  const rangeToPixels = (range: number): number =>
-    (range / WORLD_COORDINATE_MAX) * MAP_CONTENT.width;
-
   const drawPoi = (
     objectId: (typeof WORLD_INTERACTION_OBJECTS)[number]['id'],
     fill: number,
@@ -142,26 +134,28 @@ export function renderCentralSquare(scene: Phaser.Scene): void {
     const object = WORLD_INTERACTION_OBJECTS.find(
       (candidate) => candidate.id === objectId,
     )!;
-    const x = mapX(object.x);
-    const y = mapY(object.y);
-    const radius = rangeToPixels(object.interactionRange);
+    const x = worldMapX(object.x);
+    const y = worldMapY(object.y);
+    const radius = worldMapRangeToPixels(object.interactionRange);
     map.lineStyle(2, stroke, 0.28);
     map.strokeCircle(x, y, radius);
     map.fillStyle(fill, 0.96);
     map.fillRoundedRect(x - width / 2, y - height / 2, width, height, 5);
     map.lineStyle(3, stroke, 0.95);
     map.strokeRoundedRect(x - width / 2, y - height / 2, width, height, 5);
-    scene.add
-      .text(x, y + height / 2 + 12, label, {
-        color: labelColor,
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '11px',
-        fontStyle: 'bold',
-        stroke: labelStroke,
-        strokeThickness: 3,
-      })
-      .setOrigin(0.5)
-      .setDepth(2);
+    track(
+      scene.add
+        .text(x, y + height / 2 + 12, label, {
+          color: labelColor,
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: '11px',
+          fontStyle: 'bold',
+          stroke: labelStroke,
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5)
+        .setDepth(2),
+    );
   };
 
   drawPoi(
@@ -196,24 +190,29 @@ export function renderCentralSquare(scene: Phaser.Scene): void {
   );
 
   // Soft wayfinding ticks from plaza center toward POIs (spatial cue only).
-  const plazaX = mapX(50);
-  const plazaY = mapY(58);
+  const plazaX = worldMapX(50);
+  const plazaY = worldMapY(58);
   map.lineStyle(3, 0xf8fafc, 0.22);
   for (const object of WORLD_INTERACTION_OBJECTS) {
-    map.lineBetween(plazaX, plazaY, mapX(object.x), mapY(object.y));
+    map.lineBetween(plazaX, plazaY, worldMapX(object.x), worldMapY(object.y));
   }
 
-  scene.add
-    .text(400, 72, 'CENTRAL SQUARE', {
-      color: '#f7ecd0',
-      fontFamily: 'Georgia, serif',
-      fontSize: '19px',
-      fontStyle: 'bold',
-      stroke: '#47392f',
-      strokeThickness: 4,
-    })
-    .setOrigin(0.5)
-    .setDepth(1);
+  track(
+    scene.add
+      .text(400, 72, 'CENTRAL SQUARE', {
+        color: '#f7ecd0',
+        fontFamily: 'Georgia, serif',
+        fontSize: '19px',
+        fontStyle: 'bold',
+        stroke: '#47392f',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(1),
+  );
+
+  renderZonePortals(scene, WORLD_ZONE_ID, track);
+  return handle;
 }
 
 function drawBuilding(
@@ -221,6 +220,7 @@ function drawBuilding(
   graphics: Phaser.GameObjects.Graphics,
   building: Building,
   textured: boolean,
+  track: <T extends Phaser.GameObjects.GameObject>(object: T) => T,
 ): void {
   graphics.fillStyle(0x1f1712, 0.35);
   graphics.fillRoundedRect(
@@ -231,25 +231,29 @@ function drawBuilding(
     5,
   );
   if (textured) {
-    scene.add
-      .tileSprite(
-        building.x + building.width / 2,
-        building.y + building.height / 2,
-        building.width,
-        building.height,
-        'cs-wall',
-      )
-      .setDepth(2);
-    scene.add
-      .tileSprite(
-        building.x + building.width / 2,
-        building.y - 2,
-        building.width + 10,
-        18,
-        'cs-roof',
-      )
-      .setTint(building.roof)
-      .setDepth(3);
+    track(
+      scene.add
+        .tileSprite(
+          building.x + building.width / 2,
+          building.y + building.height / 2,
+          building.width,
+          building.height,
+          'cs-wall',
+        )
+        .setDepth(2),
+    );
+    track(
+      scene.add
+        .tileSprite(
+          building.x + building.width / 2,
+          building.y - 2,
+          building.width + 10,
+          18,
+          'cs-roof',
+        )
+        .setTint(building.roof)
+        .setDepth(3),
+    );
   } else {
     graphics.fillStyle(0xe2c99f);
     graphics.fillRoundedRect(

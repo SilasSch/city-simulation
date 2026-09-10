@@ -3,7 +3,12 @@
 `market-lane` is the second static zone (v0.8). Shared spawn, bounds and
 colliders live in `@city/game-protocol` (`MARKET_LANE_*`, `WORLD_ZONE_COLLIDERS`).
 
-Zone portals (`WORLD_ZONE_PORTALS`) and server-authoritative `world-transition`
-are implemented in #66. Client map/art and richer portal cues remain in #67 —
-until then the Phaser stage keeps Central Square geometry with a zone banner /
-background tint when `zoneId` switches.
+The client projection uses **procedural, license-free Phaser textures**
+generated at runtime (`market-lane-textures.ts`): cobble, dirt, stall, awning,
+and crate tiles. Map layout (`market-lane-map.ts`) mirrors the protocol
+stall/crate colliders. No third-party art packs.
+
+Zone portals (`WORLD_ZONE_PORTALS`) are drawn on both Square and Lane maps via
+`renderZonePortals` in `world-map-layout.ts`. The Phaser stage tears down and
+rebuilds map art when the confirmed snapshot `zoneId` changes (no optimistic
+swap).
