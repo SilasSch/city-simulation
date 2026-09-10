@@ -11,13 +11,16 @@ import type {
   WorldEntity,
   WorldZoneId,
 } from '@city/game-protocol';
-import {
-  CENTRAL_SQUARE_BOUNDS,
-  CENTRAL_SQUARE_ENTITY_INSET,
-  CENTRAL_SQUARE_VIEWPORT,
-  renderCentralSquare,
-} from './central-square-map';
+import { renderCentralSquare } from './central-square-map';
 import { ensureCentralSquareTextures } from './central-square-textures';
+import { renderMarketLane } from './market-lane-map';
+import { ensureMarketLaneTextures } from './market-lane-textures';
+import {
+  WORLD_MAP_BOUNDS,
+  WORLD_MAP_ENTITY_INSET,
+  WORLD_VIEWPORT,
+  type ZoneMapHandle,
+} from './world-map-layout';
 import { isEditableTarget, worldDirectionForKey } from './world-input';
 
 export interface WorldScenePort {
@@ -42,6 +45,7 @@ interface EntityMarker {
 class WorldScene extends Phaser.Scene {
   private readonly markers = new Map<string, EntityMarker>();
   private zoneBanner: Phaser.GameObjects.Text | null = null;
+  private mapHandle: ZoneMapHandle | null = null;
   private renderedZoneId: WorldZoneId | null = null;
 
   constructor(
@@ -53,9 +57,11 @@ class WorldScene extends Phaser.Scene {
 
   create(): void {
     ensureCentralSquareTextures(this);
-    renderCentralSquare(this);
+    ensureMarketLaneTextures(this);
+    this.mapHandle = renderCentralSquare(this);
+    this.renderedZoneId = WORLD_ZONE_ID;
     this.zoneBanner = this.add
-      .text(12, CENTRAL_SQUARE_VIEWPORT.height - 28, '', {
+      .text(12, WORLD_VIEWPORT.height - 28, 'Zone: Zentraler Platz', {
         color: '#e2e8f0',
         fontFamily: 'system-ui, sans-serif',
         fontSize: '14px',
@@ -69,40 +75,52 @@ class WorldScene extends Phaser.Scene {
     this.cameras.main.setBounds(
       0,
       0,
-      CENTRAL_SQUARE_VIEWPORT.width,
-      CENTRAL_SQUARE_VIEWPORT.height,
+      WORLD_VIEWPORT.width,
+      WORLD_VIEWPORT.height,
     );
     this.cameras.main.setZoom(1);
     this.cameras.main.centerOn(
-      CENTRAL_SQUARE_VIEWPORT.width / 2,
-      CENTRAL_SQUARE_VIEWPORT.height / 2,
+      WORLD_VIEWPORT.width / 2,
+      WORLD_VIEWPORT.height / 2,
     );
     this.cameras.main.setRoundPixels(true);
+    this.cameras.main.setBackgroundColor('#16251c');
 
     this.input.keyboard?.on('keydown', this.handleKeydown);
     this.onBoot();
   }
 
   override update(): void {
-    this.syncZoneStub();
+    this.syncZoneMap();
     this.syncMarkers();
   }
 
-  /** #67 owns full market-lane art; until then only a zone banner swaps. */
-  private syncZoneStub(): void {
+  /**
+   * Snapshot-driven zone art: tear down the previous map layer and rebuild
+   * when confirmed zoneId changes. No optimistic swap.
+   */
+  private syncZoneMap(): void {
     if (!this.world || !this.zoneBanner) return;
     const zoneId = this.world.zoneId();
-    if (zoneId === this.renderedZoneId) return;
+    if (zoneId === null || zoneId === this.renderedZoneId) return;
+
+    this.mapHandle?.destroy();
     this.renderedZoneId = zoneId;
+
     if (zoneId === MARKET_LANE_ZONE_ID) {
-      this.zoneBanner.setText('Zone: Marktgasse (Art stub — #67)');
+      ensureMarketLaneTextures(this);
+      this.mapHandle = renderMarketLane(this);
+      this.zoneBanner.setText('Zone: Marktgasse');
       this.cameras.main.setBackgroundColor('#2a1f14');
-    } else if (zoneId === WORLD_ZONE_ID) {
+    } else {
+      ensureCentralSquareTextures(this);
+      this.mapHandle = renderCentralSquare(this);
       this.zoneBanner.setText('Zone: Zentraler Platz');
       this.cameras.main.setBackgroundColor('#16251c');
-    } else {
-      this.zoneBanner.setText(zoneId ? `Zone: ${zoneId}` : '');
     }
+
+    // Banner stays above rebuilt map art.
+    this.zoneBanner.setDepth(20);
   }
 
   private readonly handleKeydown = (event: KeyboardEvent): void => {
@@ -205,19 +223,17 @@ class WorldScene extends Phaser.Scene {
 
   private toScreenPosition(entity: WorldEntity): { x: number; y: number } {
     const coordinateRange = WORLD_COORDINATE_MAX - WORLD_COORDINATE_MIN;
-    const usableWidth =
-      CENTRAL_SQUARE_BOUNDS.width - CENTRAL_SQUARE_ENTITY_INSET * 2;
-    const usableHeight =
-      CENTRAL_SQUARE_BOUNDS.height - CENTRAL_SQUARE_ENTITY_INSET * 2;
+    const usableWidth = WORLD_MAP_BOUNDS.width - WORLD_MAP_ENTITY_INSET * 2;
+    const usableHeight = WORLD_MAP_BOUNDS.height - WORLD_MAP_ENTITY_INSET * 2;
 
     return {
       x:
-        CENTRAL_SQUARE_BOUNDS.x +
-        CENTRAL_SQUARE_ENTITY_INSET +
+        WORLD_MAP_BOUNDS.x +
+        WORLD_MAP_ENTITY_INSET +
         ((entity.x - WORLD_COORDINATE_MIN) / coordinateRange) * usableWidth,
       y:
-        CENTRAL_SQUARE_BOUNDS.y +
-        CENTRAL_SQUARE_ENTITY_INSET +
+        WORLD_MAP_BOUNDS.y +
+        WORLD_MAP_ENTITY_INSET +
         ((entity.y - WORLD_COORDINATE_MIN) / coordinateRange) * usableHeight,
     };
   }
@@ -238,8 +254,8 @@ export class GameEngineService {
     return new Phaser.Game({
       type,
       parent,
-      width: CENTRAL_SQUARE_VIEWPORT.width,
-      height: CENTRAL_SQUARE_VIEWPORT.height,
+      width: WORLD_VIEWPORT.width,
+      height: WORLD_VIEWPORT.height,
       backgroundColor: '#16251c',
       scale: {
         mode: Phaser.Scale.FIT,

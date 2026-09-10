@@ -118,4 +118,85 @@ describe('GameEngineService', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(game.loop.running).toBe(false);
   }, 15_000);
+
+  it('swaps map art when confirmed zoneId changes', async () => {
+    const [{ GameEngineService }, Phaser, protocol] = await Promise.all([
+      import('./game-engine.service'),
+      import('phaser'),
+      import('@city/game-protocol'),
+    ]);
+
+    let zoneId: 'central-square' | 'market-lane' | null =
+      protocol.WORLD_ZONE_ID;
+    const world = {
+      entities: () => [],
+      selfCharacterId: () => null,
+      zoneId: () => zoneId,
+      move: () => undefined,
+    };
+
+    const engine = new GameEngineService();
+    const parent = document.createElement('div');
+    let resolveBoot!: (game: InstanceType<typeof Phaser.Game>) => void;
+    const bootedPromise = new Promise<InstanceType<typeof Phaser.Game>>(
+      (resolve) => {
+        resolveBoot = resolve;
+      },
+    );
+    const game = engine.createGame(
+      parent,
+      () => resolveBoot(game),
+      Phaser.HEADLESS,
+      world,
+    );
+    await bootedPromise;
+
+    const scene = game.scene.getScene('boot') as Phaser.Scene & {
+      update: (time: number, delta: number) => void;
+    };
+    const textsBefore = scene.children.list.filter(
+      (child) =>
+        'text' in child &&
+        typeof (child as Phaser.GameObjects.Text).text === 'string' &&
+        (child as Phaser.GameObjects.Text).text.includes('CENTRAL SQUARE'),
+    );
+    expect(textsBefore.length).toBeGreaterThan(0);
+
+    zoneId = protocol.MARKET_LANE_ZONE_ID;
+    scene.update(0, 16);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const textsAfter = scene.children.list
+      .filter(
+        (child) =>
+          'text' in child &&
+          typeof (child as Phaser.GameObjects.Text).text === 'string',
+      )
+      .map((child) => (child as Phaser.GameObjects.Text).text);
+    expect(textsAfter.some((text) => text.includes('MARKTGASSE'))).toBe(true);
+    expect(textsAfter.some((text) => text.includes('CENTRAL SQUARE'))).toBe(
+      false,
+    );
+    expect(textsAfter.some((text) => text.includes('Zum Platz'))).toBe(true);
+
+    zoneId = protocol.WORLD_ZONE_ID;
+    scene.update(0, 16);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const textsBack = scene.children.list
+      .filter(
+        (child) =>
+          'text' in child &&
+          typeof (child as Phaser.GameObjects.Text).text === 'string',
+      )
+      .map((child) => (child as Phaser.GameObjects.Text).text);
+    expect(textsBack.some((text) => text.includes('CENTRAL SQUARE'))).toBe(
+      true,
+    );
+    expect(textsBack.some((text) => text.includes('Zur Marktgasse'))).toBe(
+      true,
+    );
+
+    engine.destroyGame(game);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }, 15_000);
 });
