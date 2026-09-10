@@ -17,8 +17,13 @@ import {
   CENTRAL_SQUARE_NPC_PATROLS,
   WORLD_INTERACT_COMMAND_TYPE,
   WORLD_INTERACT_RESULT_EVENT_TYPE,
+  WORLD_TRANSITION_COMMAND_TYPE,
+  WORLD_ZONE_PORTALS,
   worldInteractPayloadSchema,
   worldInteractResultPayloadSchema,
+  worldTransitionPayloadSchema,
+  worldZonePortal,
+  worldZonePortalsIn,
   connectionEstablishedPayloadSchema,
   connectPayloadSchema,
   createMessage,
@@ -171,6 +176,35 @@ describe('protocol schemas', () => {
     ).toBe(true);
   });
 
+  it('defines bidirectional zone portals on walkable positions', () => {
+    expect(WORLD_ZONE_PORTALS.length).toBe(2);
+    const east = worldZonePortal('central-square-east');
+    const west = worldZonePortal('market-lane-west');
+    expect(east).toMatchObject({
+      fromZoneId: WORLD_ZONE_ID,
+      toZoneId: MARKET_LANE_ZONE_ID,
+      label: 'Zur Marktgasse',
+    });
+    expect(west).toMatchObject({
+      fromZoneId: MARKET_LANE_ZONE_ID,
+      toZoneId: WORLD_ZONE_ID,
+      label: 'Zum Platz',
+    });
+    expect(isWorldPositionWalkable(east.x, east.y, east.fromZoneId)).toBe(true);
+    expect(isWorldPositionWalkable(west.x, west.y, west.fromZoneId)).toBe(true);
+    expect(worldZonePortalsIn(WORLD_ZONE_ID).map((p) => p.id)).toEqual([
+      'central-square-east',
+    ]);
+    expect(
+      worldTransitionPayloadSchema.safeParse({
+        portalId: 'central-square-east',
+      }).success,
+    ).toBe(true);
+    expect(
+      worldTransitionPayloadSchema.safeParse({ portalId: 'nope' }).success,
+    ).toBe(false);
+  });
+
   it('prefers live NPC positions over the catalog when merging', () => {
     const live = {
       ...CENTRAL_SQUARE_NPCS[0]!,
@@ -249,6 +283,17 @@ describe('parseIncomingMessage', () => {
 
     expect(enter.ok && enter.kind).toBe(WORLD_ENTER_COMMAND_TYPE);
     expect(move.ok && move.kind).toBe(WORLD_MOVE_COMMAND_TYPE);
+  });
+
+  it('parses world-transition commands', () => {
+    const transition = parseIncomingMessage(
+      createMessage(WORLD_TRANSITION_COMMAND_TYPE, {
+        portalId: 'central-square-east',
+      }),
+    );
+    expect(transition.ok && transition.kind).toBe(
+      WORLD_TRANSITION_COMMAND_TYPE,
+    );
   });
 
   it('parses world-interact object and npc commands', () => {

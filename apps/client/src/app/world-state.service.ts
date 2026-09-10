@@ -17,6 +17,7 @@ import type {
   WorldInteractResultPayload,
   WorldInteractionObjectId,
   WorldZoneId,
+  WorldZonePortalId,
 } from '@city/game-protocol';
 import { CharacterService } from './character.service';
 import { RealtimeService } from './realtime.service';
@@ -70,8 +71,7 @@ export class WorldStateService {
       this.clearWorld();
 
       if (nextKey) {
-        // Default remains central-square; market-lane enter/portal is #66.
-        // Flip to MARKET_LANE_ZONE_ID for a manual smoke enter.
+        // Default remains central-square; portals switch zone via world-transition.
         this.realtime.sendWorldEnter(WORLD_ZONE_ID);
       }
     });
@@ -85,6 +85,12 @@ export class WorldStateService {
   interactNpc(npcCharacterId: string): void {
     if (!this.zoneId() || !this.selfEntity()) return;
     this.realtime.sendWorldInteract({ npcCharacterId });
+  }
+
+  /** Client follows confirmed snapshot only — no optimistic zone jump. */
+  transition(portalId: WorldZonePortalId): void {
+    if (!this.zoneId() || !this.selfEntity()) return;
+    this.realtime.sendWorldTransition(portalId);
   }
 
   move(direction: WorldDirection): void {

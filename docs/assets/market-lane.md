@@ -3,5 +3,7 @@
 `market-lane` is the second static zone (v0.8). Shared spawn, bounds and
 colliders live in `@city/game-protocol` (`MARKET_LANE_*`, `WORLD_ZONE_COLLIDERS`).
 
-Client map/art and portal cues are tracked in #67; zone transition in #66.
-Until then the client may keep entering `central-square` by default.
+Zone portals (`WORLD_ZONE_PORTALS`) and server-authoritative `world-transition`
+are implemented in #66. Client map/art and richer portal cues remain in #67 —
+until then the Phaser stage keeps Central Square geometry with a zone banner /
+background tint when `zoneId` switches.

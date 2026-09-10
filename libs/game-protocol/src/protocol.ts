@@ -229,6 +229,48 @@ export function worldRoomName(zoneId: WorldZoneId): string {
   return `zone:${zoneId}`;
 }
 
+/**
+ * Server-authoritative zone portals (v0.8). Triggered via world-transition with
+ * range check — not optimistic. Destination is always the target zone spawn.
+ * Labels are client HUD copy (German).
+ */
+export const WORLD_ZONE_PORTALS = [
+  {
+    id: 'central-square-east',
+    fromZoneId: WORLD_ZONE_ID,
+    toZoneId: MARKET_LANE_ZONE_ID,
+    x: 95,
+    y: 50,
+    interactionRange: 10,
+    label: 'Zur Marktgasse',
+  },
+  {
+    id: 'market-lane-west',
+    fromZoneId: MARKET_LANE_ZONE_ID,
+    toZoneId: WORLD_ZONE_ID,
+    x: 5,
+    y: 50,
+    interactionRange: 10,
+    label: 'Zum Platz',
+  },
+] as const;
+export type WorldZonePortal = (typeof WORLD_ZONE_PORTALS)[number];
+export type WorldZonePortalId = WorldZonePortal['id'];
+
+export function worldZonePortal(id: WorldZonePortalId): WorldZonePortal {
+  const portal = WORLD_ZONE_PORTALS.find((candidate) => candidate.id === id);
+  if (!portal) {
+    throw new Error(`Unknown world zone portal: ${id}`);
+  }
+  return portal;
+}
+
+export function worldZonePortalsIn(
+  zoneId: WorldZoneId,
+): readonly WorldZonePortal[] {
+  return WORLD_ZONE_PORTALS.filter((portal) => portal.fromZoneId === zoneId);
+}
+
 export const WORLD_INTERACTION_OBJECTS = [
   {
     id: 'bench-south',
@@ -488,6 +530,14 @@ export function isNpcWorldInteractPayload(
 ): payload is { npcCharacterId: string } {
   return 'npcCharacterId' in payload;
 }
+
+export const WORLD_TRANSITION_COMMAND_TYPE = 'world-transition';
+export const worldTransitionPayloadSchema = z.object({
+  portalId: z.enum(['central-square-east', 'market-lane-west']),
+});
+export type WorldTransitionPayload = z.infer<
+  typeof worldTransitionPayloadSchema
+>;
 
 // --- Events (Server -> Client): Zustandsänderung ist bereits erfolgt ---
 

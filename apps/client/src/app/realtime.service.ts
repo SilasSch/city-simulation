@@ -15,6 +15,7 @@ import {
   WORLD_MOVE_COMMAND_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
+  WORLD_TRANSITION_COMMAND_TYPE,
   connectPayloadSchema,
   createMessage,
   parseServerMessage,
@@ -22,6 +23,7 @@ import {
   worldEnterPayloadSchema,
   worldInteractPayloadSchema,
   worldMovePayloadSchema,
+  worldTransitionPayloadSchema,
 } from '@city/game-protocol';
 import type {
   ParsedServerMessage,
@@ -29,6 +31,7 @@ import type {
   WorldDirection,
   WorldInteractPayload,
   WorldZoneId,
+  WorldZonePortalId,
 } from '@city/game-protocol';
 
 export type RealtimeConnectionState =
@@ -121,6 +124,12 @@ export class RealtimeService implements OnDestroy {
     if (this.connectionState() !== 'connected') return;
     const payload = worldMovePayloadSchema.parse({ direction });
     this.emitValidated(WORLD_MOVE_COMMAND_TYPE, payload);
+  }
+
+  sendWorldTransition(portalId: WorldZonePortalId): void {
+    if (this.connectionState() !== 'connected') return;
+    const payload = worldTransitionPayloadSchema.parse({ portalId });
+    this.emitValidated(WORLD_TRANSITION_COMMAND_TYPE, payload);
   }
 
   private emitValidated<TPayload>(type: string, payload: TPayload): void {

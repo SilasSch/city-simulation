@@ -6,6 +6,7 @@ import {
   MARKET_LANE_ZONE_ID,
   WORLD_SPAWN_POSITION,
   WORLD_ZONE_ID,
+  worldZonePortal,
 } from '@city/game-protocol';
 import { AppModule } from '../app.module';
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal';
@@ -221,5 +222,51 @@ describe('WorldService (integration)', () => {
       zoneId: MARKET_LANE_ZONE_ID,
       ...MARKET_LANE_SPAWN_POSITION,
     });
+  });
+
+  it('transitions via portal when in range and rejects out-of-range', async () => {
+    const principal = await playerWithCharacter('portal@example.com');
+    const square = await world.enter(principal, WORLD_ZONE_ID);
+    const portal = worldZonePortal('central-square-east');
+
+    await expect(
+      world.transition(principal, square.context, {
+        portalId: 'central-square-east',
+      }),
+    ).rejects.toMatchObject({ code: 'INTERACTION_OUT_OF_RANGE' });
+
+    await prisma.characterWorldState.update({
+      where: { characterId: square.context.characterId },
+      data: { x: portal.x, y: portal.y },
+    });
+
+    const lane = await world.transition(principal, square.context, {
+      portalId: 'central-square-east',
+    });
+    expect(lane.context.zoneId).toBe(MARKET_LANE_ZONE_ID);
+    expect(lane.snapshot.zoneId).toBe(MARKET_LANE_ZONE_ID);
+    expect(
+      lane.snapshot.entities.find(
+        (entity) => entity.characterId === lane.context.characterId,
+      ),
+    ).toMatchObject(MARKET_LANE_SPAWN_POSITION);
+    expect(
+      lane.snapshot.entities.every((entity) => entity.kind !== 'npc'),
+    ).toBe(true);
+
+    const returnPortal = worldZonePortal('market-lane-west');
+    await prisma.characterWorldState.update({
+      where: { characterId: lane.context.characterId },
+      data: { x: returnPortal.x, y: returnPortal.y },
+    });
+    const back = await world.transition(principal, lane.context, {
+      portalId: 'market-lane-west',
+    });
+    expect(back.snapshot.zoneId).toBe(WORLD_ZONE_ID);
+    expect(
+      back.snapshot.entities.find(
+        (entity) => entity.characterId === back.context.characterId,
+      ),
+    ).toMatchObject(WORLD_SPAWN_POSITION);
   });
 });

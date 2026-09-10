@@ -12,10 +12,13 @@ import Phaser from 'phaser';
 import type {
   WorldEntity,
   WorldInteractionObjectId,
+  WorldZonePortal,
 } from '@city/game-protocol';
 import {
   NPC_INTERACTION_RANGE,
+  WORLD_ZONE_ID,
   worldInteractionObject,
+  worldZonePortalsIn,
 } from '@city/game-protocol';
 import { GameEngineService } from './game-engine.service';
 import { RealtimeService } from './realtime.service';
@@ -174,42 +177,58 @@ import { WorldStateService } from './world-state.service';
               </div>
             </div>
             <div class="hud-actions">
-              <button
-                type="button"
-                data-testid="rest-action"
-                [disabled]="!!self.interaction || !inRange(self, 'bench-south')"
-                (click)="world.interact('bench-south')"
-              >
-                Ausruhen
-              </button>
-              <button
-                type="button"
-                data-testid="job-action"
-                [disabled]="!!self.interaction || !inRange(self, 'kiosk-north')"
-                (click)="world.interact('kiosk-north')"
-              >
-                Job (+{{ jobMoneyGain }})
-              </button>
-              <button
-                type="button"
-                data-testid="shop-action"
-                [disabled]="
-                  !!self.interaction ||
-                  self.money < snackPrice ||
-                  !inRange(self, 'snack-east')
-                "
-                (click)="world.interact('snack-east')"
-              >
-                Snack (−{{ snackPrice }})
-              </button>
-              <button
-                type="button"
-                data-testid="npc-talk-action"
-                [disabled]="!!self.interaction || !npcInRange(self)"
-                (click)="talkToNearbyNpc(self)"
-              >
-                Sprechen
-              </button>
+              @if (world.zoneId() === centralSquareZoneId) {
+                <button
+                  type="button"
+                  data-testid="rest-action"
+                  [disabled]="
+                    !!self.interaction || !inRange(self, 'bench-south')
+                  "
+                  (click)="world.interact('bench-south')"
+                >
+                  Ausruhen
+                </button>
+                <button
+                  type="button"
+                  data-testid="job-action"
+                  [disabled]="
+                    !!self.interaction || !inRange(self, 'kiosk-north')
+                  "
+                  (click)="world.interact('kiosk-north')"
+                >
+                  Job (+{{ jobMoneyGain }})
+                </button>
+                <button
+                  type="button"
+                  data-testid="shop-action"
+                  [disabled]="
+                    !!self.interaction ||
+                    self.money < snackPrice ||
+                    !inRange(self, 'snack-east')
+                  "
+                  (click)="world.interact('snack-east')"
+                >
+                  Snack (−{{ snackPrice }})
+                </button>
+                <button
+                  type="button"
+                  data-testid="npc-talk-action"
+                  [disabled]="!!self.interaction || !npcInRange(self)"
+                  (click)="talkToNearbyNpc(self)"
+                >
+                  Sprechen
+                </button>
+              }
+              @if (nearbyPortal(self); as portal) {
+                <button
+                  type="button"
+                  data-testid="portal-action"
+                  [disabled]="!!self.interaction"
+                  (click)="world.transition(portal.id)"
+                >
+                  {{ portal.label }}
+                </button>
+              }
             </div>
             @if (self.interaction; as interaction) {
               <p class="interaction-chip" data-testid="interaction-state">
@@ -265,6 +284,7 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
   protected readonly snackPrice = worldInteractionObject('snack-east').price;
   protected readonly jobMoneyGain =
     worldInteractionObject('kiosk-north').moneyGain;
+  protected readonly centralSquareZoneId = WORLD_ZONE_ID;
 
   private readonly engine = inject(GameEngineService);
   protected readonly realtime = inject(RealtimeService);
@@ -308,6 +328,21 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
     const npc = this.nearbyNpc(self);
     if (!npc) return;
     this.world.interactNpc(npc.characterId);
+  }
+
+  protected nearbyPortal(self: WorldEntity): WorldZonePortal | null {
+    const zoneId = this.world.zoneId();
+    if (!zoneId) return null;
+    let best: WorldZonePortal | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const portal of worldZonePortalsIn(zoneId)) {
+      const distance = Math.hypot(self.x - portal.x, self.y - portal.y);
+      if (distance <= portal.interactionRange && distance < bestDistance) {
+        best = portal;
+        bestDistance = distance;
+      }
+    }
+    return best;
   }
 
   protected simulationTimeText(): string {
