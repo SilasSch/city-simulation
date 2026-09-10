@@ -201,8 +201,6 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
 
   protected readonly engineBooted = signal(false);
   protected readonly snackPrice = worldInteractionObject('snack-east').price;
-  protected readonly snackEnergyGain =
-    worldInteractionObject('snack-east').energyGain;
   protected readonly jobMoneyGain =
     worldInteractionObject('kiosk-north').moneyGain;
 
