@@ -42,6 +42,15 @@ class WorldScene extends Phaser.Scene {
   create(): void {
     renderCentralSquare(this);
 
+    this.cameras.main.setBounds(
+      CENTRAL_SQUARE_BOUNDS.x,
+      CENTRAL_SQUARE_BOUNDS.y,
+      CENTRAL_SQUARE_BOUNDS.width,
+      CENTRAL_SQUARE_BOUNDS.height,
+    );
+    this.cameras.main.setZoom(1.3);
+    this.cameras.main.setRoundPixels(true);
+
     this.input.keyboard?.on('keydown', this.handleKeydown);
     this.onBoot();
   }
@@ -94,6 +103,10 @@ class WorldScene extends Phaser.Scene {
         marker.dot.strokeCircle(position.x, position.y, 13);
       }
       marker.label.setPosition(position.x + 10, position.y - 8);
+
+      if (isSelf) {
+        this.cameras.main.centerOn(position.x, position.y);
+      }
     }
   }
 
