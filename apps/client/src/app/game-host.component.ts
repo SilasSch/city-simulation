@@ -231,6 +231,18 @@ import { WorldStateService } from './world-state.service';
                 >
                   Am Stall helfen (+{{ stallMoneyGain }})
                 </button>
+                <button
+                  type="button"
+                  data-testid="market-shop-action"
+                  [disabled]="
+                    !!self.interaction ||
+                    self.money < streetFoodPrice ||
+                    !inRange(self, 'street-food-east')
+                  "
+                  (click)="world.interact('street-food-east')"
+                >
+                  Straßenessen (−{{ streetFoodPrice }})
+                </button>
               }
               @if (nearbyPortal(self); as portal) {
                 <button
@@ -297,6 +309,8 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
 
   protected readonly engineBooted = signal(false);
   protected readonly snackPrice = worldInteractionObject('snack-east').price;
+  protected readonly streetFoodPrice =
+    worldInteractionObject('street-food-east').price;
   protected readonly jobMoneyGain =
     worldInteractionObject('kiosk-north').moneyGain;
   protected readonly stallMoneyGain =

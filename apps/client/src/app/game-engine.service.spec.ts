@@ -175,6 +175,7 @@ describe('GameEngineService', () => {
       .map((child) => (child as Phaser.GameObjects.Text).text);
     expect(textsAfter.some((text) => text.includes('MARKTGASSE'))).toBe(true);
     expect(textsAfter.some((text) => text.includes('JOB'))).toBe(true);
+    expect(textsAfter.some((text) => text.includes('SHOP'))).toBe(true);
     expect(textsAfter.some((text) => text.includes('CENTRAL SQUARE'))).toBe(
       false,
     );
