@@ -1,9 +1,11 @@
 import Phaser from 'phaser';
 import {
   CENTRAL_SQUARE_COLLIDERS,
-  WORLD_INTERACTION_OBJECTS,
   WORLD_ZONE_ID,
+  worldInteractionObject,
+  worldInteractionObjectsIn,
   type WorldCircleCollider,
+  type WorldInteractionObjectId,
   type WorldRectangleCollider,
 } from '@city/game-protocol';
 import { ensureCentralSquareTextures } from './central-square-textures';
@@ -122,7 +124,7 @@ export function renderCentralSquare(scene: Phaser.Scene): ZoneMapHandle {
   map.fillRoundedRect(502, 115, 9, 45, 3);
 
   const drawPoi = (
-    objectId: (typeof WORLD_INTERACTION_OBJECTS)[number]['id'],
+    objectId: WorldInteractionObjectId,
     fill: number,
     stroke: number,
     label: string,
@@ -131,9 +133,7 @@ export function renderCentralSquare(scene: Phaser.Scene): ZoneMapHandle {
     width: number,
     height: number,
   ): void => {
-    const object = WORLD_INTERACTION_OBJECTS.find(
-      (candidate) => candidate.id === objectId,
-    )!;
+    const object = worldInteractionObject(objectId);
     const x = worldMapX(object.x);
     const y = worldMapY(object.y);
     const radius = worldMapRangeToPixels(object.interactionRange);
@@ -193,7 +193,7 @@ export function renderCentralSquare(scene: Phaser.Scene): ZoneMapHandle {
   const plazaX = worldMapX(50);
   const plazaY = worldMapY(58);
   map.lineStyle(3, 0xf8fafc, 0.22);
-  for (const object of WORLD_INTERACTION_OBJECTS) {
+  for (const object of worldInteractionObjectsIn(WORLD_ZONE_ID)) {
     map.lineBetween(plazaX, plazaY, worldMapX(object.x), worldMapY(object.y));
   }
 

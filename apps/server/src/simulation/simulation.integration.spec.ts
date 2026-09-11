@@ -3,8 +3,10 @@ import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   CENTRAL_SQUARE_NPCS,
+  MARKET_LANE_ZONE_ID,
   NPC_INTERACTION_RANGE,
   WORLD_ZONE_ID,
+  worldInteractionObject,
 } from '@city/game-protocol';
 import { AppModule } from '../app.module';
 import type { AuthenticatedPrincipal } from '../auth/authenticated-principal';
@@ -218,6 +220,67 @@ describe('first simulation loop (integration)', () => {
       world.interact(principal, entry.context, {
         npcCharacterId: npc.characterId,
       }),
+    ).rejects.toMatchObject({ code: 'INTERACTION_OUT_OF_RANGE' });
+  });
+
+  it('pays money when a market-lane stall job completes', async () => {
+    const principal = await player();
+    const stall = worldInteractionObject('stall-north');
+    const entry = await world.enter(principal, MARKET_LANE_ZONE_ID);
+    await prisma.characterWorldState.update({
+      where: { characterId: entry.context.characterId },
+      data: { x: stall.x, y: stall.y, money: 0 },
+    });
+
+    const active = await world.interact(principal, entry.context, {
+      objectId: 'stall-north',
+    });
+    expect(active.kind).toBe('object');
+    if (active.kind !== 'object') throw new Error('expected object outcome');
+    expect(active.entity.interaction?.objectId).toBe('stall-north');
+    expect(active.entity.money).toBe(0);
+
+    const completionNow = new Date(simulation.clockSnapshot().simulatedTime);
+    await prisma.characterWorldState.update({
+      where: { characterId: entry.context.characterId },
+      data: {
+        interactionStartedAt: new Date(
+          completionNow.getTime() - stall.durationSimulationSeconds * 1000 - 1,
+        ),
+        interactionEndsAt: new Date(completionNow.getTime() - 1),
+      },
+    });
+    const completed = (await simulation.tick([entry.context.characterId]))
+      .entities[0];
+    expect(completed?.interaction).toBeNull();
+    expect(completed?.money).toBe(stall.moneyGain);
+  });
+
+  it('rejects stall jobs out of range or in the wrong zone', async () => {
+    const principal = await player();
+    const stall = worldInteractionObject('stall-north');
+    const snack = worldInteractionObject('snack-east');
+
+    const square = await world.enter(principal, WORLD_ZONE_ID);
+    await prisma.characterWorldState.update({
+      where: { characterId: square.context.characterId },
+      data: { x: stall.x, y: stall.y, money: 15 },
+    });
+    await expect(
+      world.interact(principal, square.context, { objectId: 'stall-north' }),
+    ).rejects.toMatchObject({ code: 'INTERACTION_OUT_OF_RANGE' });
+
+    const lane = await world.enter(principal, MARKET_LANE_ZONE_ID);
+    await expect(
+      world.interact(principal, lane.context, { objectId: 'stall-north' }),
+    ).rejects.toMatchObject({ code: 'INTERACTION_OUT_OF_RANGE' });
+
+    await prisma.characterWorldState.update({
+      where: { characterId: lane.context.characterId },
+      data: { x: snack.x, y: snack.y, money: 15 },
+    });
+    await expect(
+      world.interact(principal, lane.context, { objectId: 'snack-east' }),
     ).rejects.toMatchObject({ code: 'INTERACTION_OUT_OF_RANGE' });
   });
 });

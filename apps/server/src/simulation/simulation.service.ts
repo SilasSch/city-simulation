@@ -195,6 +195,14 @@ export class SimulationService implements OnModuleInit {
       );
     }
 
+    if (state.zoneId !== object.zoneId) {
+      throw new ApplicationError(
+        'INTERACTION_OUT_OF_RANGE',
+        409,
+        'Move closer before interacting',
+      );
+    }
+
     const distance = Math.hypot(state.x - object.x, state.y - object.y);
     if (distance > object.interactionRange) {
       throw new ApplicationError(
@@ -320,9 +328,12 @@ export class SimulationService implements OnModuleInit {
     );
 
     let interaction = null;
+    const activeObject = WORLD_INTERACTION_OBJECTS.find(
+      (candidate) => candidate.id === state.interactionObjectId,
+    );
     if (
-      (state.interactionObjectId === 'bench-south' ||
-        state.interactionObjectId === 'kiosk-north') &&
+      activeObject &&
+      activeObject.durationSimulationSeconds > 0 &&
       state.interactionStartedAt &&
       state.interactionEndsAt
     ) {
@@ -330,7 +341,7 @@ export class SimulationService implements OnModuleInit {
         state.interactionEndsAt.getTime() -
         state.interactionStartedAt.getTime();
       interaction = {
-        objectId: state.interactionObjectId,
+        objectId: state.interactionObjectId as typeof activeObject.id,
         startedAt: state.interactionStartedAt.toISOString(),
         endsAt: state.interactionEndsAt.toISOString(),
         progress: Math.max(

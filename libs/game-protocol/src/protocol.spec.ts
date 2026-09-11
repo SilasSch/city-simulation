@@ -23,6 +23,8 @@ import {
   worldInteractPayloadSchema,
   worldInteractResultPayloadSchema,
   worldTransitionPayloadSchema,
+  worldInteractionObject,
+  worldInteractionObjectsIn,
   worldZonePortal,
   worldZonePortalsIn,
   connectionEstablishedPayloadSchema,
@@ -235,6 +237,29 @@ describe('protocol schemas', () => {
         expect(isWorldPositionWalkable(waypoint.x, waypoint.y)).toBe(true);
       }
     }
+  });
+
+  it('defines a walkable market-lane stall job', () => {
+    const stall = worldInteractionObject('stall-north');
+    expect(stall).toMatchObject({
+      kind: 'stall',
+      zoneId: MARKET_LANE_ZONE_ID,
+      moneyGain: 20,
+      durationSimulationSeconds: 150,
+      price: 0,
+    });
+    expect(isWorldPositionWalkable(stall.x, stall.y, MARKET_LANE_ZONE_ID)).toBe(
+      true,
+    );
+    expect(
+      worldInteractionObjectsIn(MARKET_LANE_ZONE_ID).map((object) => object.id),
+    ).toEqual(['stall-north']);
+    expect(
+      worldInteractionObjectsIn(WORLD_ZONE_ID).map((object) => object.id),
+    ).toEqual(['bench-south', 'kiosk-north', 'snack-east']);
+    expect(
+      worldInteractPayloadSchema.safeParse({ objectId: 'stall-north' }).success,
+    ).toBe(true);
   });
 
   it('accepts world-interact payloads for objects and NPCs', () => {
