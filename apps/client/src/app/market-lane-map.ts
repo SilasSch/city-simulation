@@ -94,6 +94,7 @@ export function renderMarketLane(scene: Phaser.Scene): ZoneMapHandle {
   );
 
   drawStallJobPoi(scene, map, track);
+  drawStreetFoodPoi(scene, map, track);
 
   renderZonePortals(scene, MARKET_LANE_ZONE_ID, track);
   return handle;
@@ -120,6 +121,39 @@ function drawStallJobPoi(
   track(
     scene.add
       .text(x, y + height / 2 + 12, 'JOB', {
+        color: '#fff7ed',
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '11px',
+        fontStyle: 'bold',
+        stroke: '#431407',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setDepth(2),
+  );
+}
+
+function drawStreetFoodPoi(
+  scene: Phaser.Scene,
+  graphics: Phaser.GameObjects.Graphics,
+  track: <T extends Phaser.GameObjects.GameObject>(object: T) => T,
+): void {
+  const object = worldInteractionObject('street-food-east');
+  const x = worldMapX(object.x);
+  const y = worldMapY(object.y);
+  const radius = worldMapRangeToPixels(object.interactionRange);
+  const width = 52;
+  const height = 28;
+
+  graphics.lineStyle(2, 0xfbbf24, 0.28);
+  graphics.strokeCircle(x, y, radius);
+  graphics.fillStyle(0x7c2d12, 0.96);
+  graphics.fillRoundedRect(x - width / 2, y - height / 2, width, height, 5);
+  graphics.lineStyle(3, 0xfbbf24, 0.95);
+  graphics.strokeRoundedRect(x - width / 2, y - height / 2, width, height, 5);
+  track(
+    scene.add
+      .text(x, y + height / 2 + 12, 'SHOP', {
         color: '#fff7ed',
         fontFamily: 'system-ui, sans-serif',
         fontSize: '11px',

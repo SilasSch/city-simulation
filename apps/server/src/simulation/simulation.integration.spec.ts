@@ -283,4 +283,57 @@ describe('first simulation loop (integration)', () => {
       world.interact(principal, lane.context, { objectId: 'snack-east' }),
     ).rejects.toMatchObject({ code: 'INTERACTION_OUT_OF_RANGE' });
   });
+
+  it('rejects and applies market-lane street-food purchases by wallet', async () => {
+    const principal = await player();
+    const shop = worldInteractionObject('street-food-east');
+    const entry = await world.enter(principal, MARKET_LANE_ZONE_ID);
+    await prisma.characterWorldState.update({
+      where: { characterId: entry.context.characterId },
+      data: { x: shop.x, y: shop.y, money: 10, energy: 50 },
+    });
+
+    await expect(
+      world.interact(principal, entry.context, {
+        objectId: 'street-food-east',
+      }),
+    ).rejects.toMatchObject({ code: 'INSUFFICIENT_FUNDS' });
+
+    await prisma.characterWorldState.update({
+      where: { characterId: entry.context.characterId },
+      data: { money: shop.price },
+    });
+    const purchased = await world.interact(principal, entry.context, {
+      objectId: 'street-food-east',
+    });
+    expect(purchased.kind).toBe('object');
+    if (purchased.kind !== 'object') throw new Error('expected object outcome');
+    expect(purchased.entity.interaction).toBeNull();
+    expect(purchased.entity.money).toBe(0);
+    expect(purchased.entity.energy).toBeGreaterThanOrEqual(69.9);
+    expect(purchased.entity.energy).toBeLessThanOrEqual(70);
+  });
+
+  it('rejects street-food purchases out of range or in the wrong zone', async () => {
+    const principal = await player();
+    const shop = worldInteractionObject('street-food-east');
+
+    const square = await world.enter(principal, WORLD_ZONE_ID);
+    await prisma.characterWorldState.update({
+      where: { characterId: square.context.characterId },
+      data: { x: shop.x, y: shop.y, money: 15 },
+    });
+    await expect(
+      world.interact(principal, square.context, {
+        objectId: 'street-food-east',
+      }),
+    ).rejects.toMatchObject({ code: 'INTERACTION_OUT_OF_RANGE' });
+
+    const lane = await world.enter(principal, MARKET_LANE_ZONE_ID);
+    await expect(
+      world.interact(principal, lane.context, {
+        objectId: 'street-food-east',
+      }),
+    ).rejects.toMatchObject({ code: 'INTERACTION_OUT_OF_RANGE' });
+  });
 });

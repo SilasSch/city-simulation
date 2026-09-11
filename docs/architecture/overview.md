@@ -154,9 +154,9 @@ automatisch ausgewählt (ADR 0009); die Auswahl überlebt Server-Neustarts
   nie negativ). Nur der Server bucht Änderungen; Clients zeigen den bestätigten
   Wert. Jobs und Käufe sind zonengebunden: Am Nord-Kiosk (`kiosk-north`)
   verdient eine abgeschlossene Job-Interaktion 25 Geld, am Marktgassen-Stall
-  (`stall-north`) 20 Geld. Am Ost-Snackstand (`snack-east`) kostet ein
-  Sofortkauf 15 Geld und gibt 20 Energy; zu wenig Geld liefert
-  `INSUFFICIENT_FUNDS`.
+  (`stall-north`) 20 Geld. Am Ost-Snackstand (`snack-east`) und am
+  Marktgassen-Straßenessen (`street-food-east`) kostet ein Sofortkauf
+  15 Geld und gibt 20 Energy; zu wenig Geld liefert `INSUFFICIENT_FUNDS`.
 - `world-interact` startet an der südlichen Bank eine exklusive,
   entfernungsgeprüfte Rast-Interaktion. Abschluss gibt 30 Energie; Bewegung,
   letzter Disconnect und Kontextverlust brechen sie ab. Tick-Events projizieren

@@ -322,6 +322,19 @@ export const WORLD_INTERACTION_OBJECTS = [
     moneyGain: 20,
     price: 0,
   },
+  {
+    id: 'street-food-east',
+    kind: 'shop',
+    zoneId: MARKET_LANE_ZONE_ID,
+    // SW of stall-north-east — walkable, clear of mid-lane and stall job.
+    x: 74,
+    y: 26,
+    interactionRange: 10,
+    durationSimulationSeconds: 0,
+    energyGain: 20,
+    moneyGain: 0,
+    price: 15,
+  },
 ] as const;
 export type WorldInteractionObject = (typeof WORLD_INTERACTION_OBJECTS)[number];
 export type WorldInteractionObjectId = WorldInteractionObject['id'];

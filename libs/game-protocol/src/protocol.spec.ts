@@ -253,12 +253,31 @@ describe('protocol schemas', () => {
     );
     expect(
       worldInteractionObjectsIn(MARKET_LANE_ZONE_ID).map((object) => object.id),
-    ).toEqual(['stall-north']);
+    ).toEqual(['stall-north', 'street-food-east']);
     expect(
       worldInteractionObjectsIn(WORLD_ZONE_ID).map((object) => object.id),
     ).toEqual(['bench-south', 'kiosk-north', 'snack-east']);
     expect(
       worldInteractPayloadSchema.safeParse({ objectId: 'stall-north' }).success,
+    ).toBe(true);
+  });
+
+  it('defines a walkable market-lane street-food shop', () => {
+    const shop = worldInteractionObject('street-food-east');
+    expect(shop).toMatchObject({
+      kind: 'shop',
+      zoneId: MARKET_LANE_ZONE_ID,
+      price: 15,
+      energyGain: 20,
+      durationSimulationSeconds: 0,
+      moneyGain: 0,
+    });
+    expect(isWorldPositionWalkable(shop.x, shop.y, MARKET_LANE_ZONE_ID)).toBe(
+      true,
+    );
+    expect(
+      worldInteractPayloadSchema.safeParse({ objectId: 'street-food-east' })
+        .success,
     ).toBe(true);
   });
 
