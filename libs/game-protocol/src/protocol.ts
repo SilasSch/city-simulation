@@ -149,7 +149,8 @@ export const CENTRAL_SQUARE_COLLIDERS: readonly WorldCollider[] = [
 
 /**
  * Einfache Marktgasse: begehbare Mittelgasse, Stände an den Seiten.
- * Portal-/Art-Feinschliff folgt in #66/#67 — hier nur geteilte Geometrie.
+ * crate-west sitzt nördlich der Mittelgasse, damit Spawn→West-Portal
+ * gerade begehbar bleibt (#72). Client-Art spiegelt diese Collider.
  */
 export const MARKET_LANE_COLLIDERS: readonly WorldCollider[] = [
   {
@@ -187,10 +188,10 @@ export const MARKET_LANE_COLLIDERS: readonly WorldCollider[] = [
   {
     id: 'crate-west',
     kind: 'rectangle',
-    minX: 28,
-    minY: 44,
-    maxX: 36,
-    maxY: 56,
+    minX: 24,
+    minY: 28,
+    maxX: 32,
+    maxY: 38,
   },
   {
     id: 'crate-east',
