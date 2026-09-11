@@ -5,6 +5,7 @@ import {
   WORLD_ENTITY_JOINED_EVENT_TYPE,
   WORLD_ENTITY_LEFT_EVENT_TYPE,
   WORLD_COORDINATE_MAX,
+  WORLD_MOVE_STEP,
   WORLD_ENTER_COMMAND_TYPE,
   WORLD_MOVE_COMMAND_TYPE,
   WORLD_POSITION_CHANGED_EVENT_TYPE,
@@ -107,6 +108,11 @@ describe('protocol schemas', () => {
     ).toBe(true);
     expect(isWorldPositionWalkable(10, 10, MARKET_LANE_ZONE_ID)).toBe(false);
     expect(isWorldPositionWalkable(50, 50, MARKET_LANE_ZONE_ID)).toBe(true);
+    // Mid-lane corridor spawn → west portal stays clear (#72); crate-west is north of y=50.
+    expect(isWorldPositionWalkable(28, 33, MARKET_LANE_ZONE_ID)).toBe(false);
+    for (let x = MARKET_LANE_SPAWN_POSITION.x; x >= 5; x -= WORLD_MOVE_STEP) {
+      expect(isWorldPositionWalkable(x, 50, MARKET_LANE_ZONE_ID)).toBe(true);
+    }
   });
 
   it('validates complete world snapshots', () => {
