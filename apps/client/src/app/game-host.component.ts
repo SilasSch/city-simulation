@@ -15,6 +15,7 @@ import type {
   WorldZonePortal,
 } from '@city/game-protocol';
 import {
+  MARKET_LANE_ZONE_ID,
   NPC_INTERACTION_RANGE,
   WORLD_ZONE_ID,
   worldInteractionObject,
@@ -219,6 +220,18 @@ import { WorldStateService } from './world-state.service';
                   Sprechen
                 </button>
               }
+              @if (world.zoneId() === marketLaneZoneId) {
+                <button
+                  type="button"
+                  data-testid="stall-job-action"
+                  [disabled]="
+                    !!self.interaction || !inRange(self, 'stall-north')
+                  "
+                  (click)="world.interact('stall-north')"
+                >
+                  Am Stall helfen (+{{ stallMoneyGain }})
+                </button>
+              }
               @if (nearbyPortal(self); as portal) {
                 <button
                   type="button"
@@ -236,6 +249,8 @@ import { WorldStateService } from './world-state.service';
                   Ruht auf der Bank:
                 } @else if (interaction.objectId === 'kiosk-north') {
                   Arbeitet am Kiosk:
+                } @else if (interaction.objectId === 'stall-north') {
+                  Hilft am Stall:
                 } @else {
                   Interaktion:
                 }
@@ -284,7 +299,10 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
   protected readonly snackPrice = worldInteractionObject('snack-east').price;
   protected readonly jobMoneyGain =
     worldInteractionObject('kiosk-north').moneyGain;
+  protected readonly stallMoneyGain =
+    worldInteractionObject('stall-north').moneyGain;
   protected readonly centralSquareZoneId = WORLD_ZONE_ID;
+  protected readonly marketLaneZoneId = MARKET_LANE_ZONE_ID;
 
   private readonly engine = inject(GameEngineService);
   protected readonly realtime = inject(RealtimeService);
@@ -301,6 +319,7 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
     objectId: WorldInteractionObjectId,
   ): boolean {
     const object = worldInteractionObject(objectId);
+    if (this.world.zoneId() !== object.zoneId) return false;
     const dx = self.x - object.x;
     const dy = self.y - object.y;
     return Math.hypot(dx, dy) <= object.interactionRange;

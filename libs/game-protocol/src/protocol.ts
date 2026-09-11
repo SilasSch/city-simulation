@@ -276,6 +276,7 @@ export const WORLD_INTERACTION_OBJECTS = [
   {
     id: 'bench-south',
     kind: 'bench',
+    zoneId: WORLD_ZONE_ID,
     x: 62,
     y: 70,
     interactionRange: 10,
@@ -287,6 +288,7 @@ export const WORLD_INTERACTION_OBJECTS = [
   {
     id: 'kiosk-north',
     kind: 'kiosk',
+    zoneId: WORLD_ZONE_ID,
     x: 40,
     y: 42,
     interactionRange: 10,
@@ -298,6 +300,7 @@ export const WORLD_INTERACTION_OBJECTS = [
   {
     id: 'snack-east',
     kind: 'shop',
+    zoneId: WORLD_ZONE_ID,
     x: 68,
     y: 55,
     interactionRange: 10,
@@ -306,9 +309,28 @@ export const WORLD_INTERACTION_OBJECTS = [
     moneyGain: 0,
     price: 15,
   },
+  {
+    id: 'stall-north',
+    kind: 'stall',
+    zoneId: MARKET_LANE_ZONE_ID,
+    // SE of stall-north-west collider — walkable, clear of mid-lane (#72).
+    x: 26,
+    y: 26,
+    interactionRange: 10,
+    durationSimulationSeconds: 150,
+    energyGain: 0,
+    moneyGain: 20,
+    price: 0,
+  },
 ] as const;
 export type WorldInteractionObject = (typeof WORLD_INTERACTION_OBJECTS)[number];
 export type WorldInteractionObjectId = WorldInteractionObject['id'];
+export const WORLD_INTERACTION_OBJECT_IDS = WORLD_INTERACTION_OBJECTS.map(
+  (object) => object.id,
+) as [WorldInteractionObjectId, ...WorldInteractionObjectId[]];
+export const worldInteractionObjectIdSchema = z.enum(
+  WORLD_INTERACTION_OBJECT_IDS,
+);
 
 export function worldInteractionObject(
   id: WorldInteractionObjectId,
@@ -320,6 +342,12 @@ export function worldInteractionObject(
     throw new Error(`Unknown world interaction object: ${id}`);
   }
   return object;
+}
+
+export function worldInteractionObjectsIn(
+  zoneId: WorldZoneId,
+): readonly WorldInteractionObject[] {
+  return WORLD_INTERACTION_OBJECTS.filter((object) => object.zoneId === zoneId);
 }
 
 function isClearOfColliders(
@@ -370,7 +398,7 @@ export const worldDirectionSchema = z.enum(['N', 'E', 'S', 'W']);
 export type WorldDirection = z.infer<typeof worldDirectionSchema>;
 
 export const worldInteractionStateSchema = z.object({
-  objectId: z.enum(['bench-south', 'kiosk-north', 'snack-east']),
+  objectId: worldInteractionObjectIdSchema,
   startedAt: z.string().datetime({ offset: true }),
   endsAt: z.string().datetime({ offset: true }),
   progress: z.number().min(0).max(1),
@@ -518,7 +546,7 @@ export const WORLD_INTERACT_COMMAND_TYPE = 'world-interact';
  */
 export const worldInteractPayloadSchema = z.union([
   z.object({
-    objectId: z.enum(['bench-south', 'kiosk-north', 'snack-east']),
+    objectId: worldInteractionObjectIdSchema,
   }),
   z.object({
     npcCharacterId: z.string().uuid(),
