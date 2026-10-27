@@ -109,8 +109,9 @@ describe('GameEngineService', () => {
   it('rebuilds the grey-box when the confirmed zoneId changes', () => {
     let zoneId: 'central-square' | 'market-lane' = 'central-square';
     const renderer = fakeRenderer();
+    const parent = document.createElement('div');
     const view = new GameEngineService().createGame(
-      document.createElement('div'),
+      parent,
       () => undefined,
       worldPort({ zoneId: () => zoneId }),
       () => renderer,
@@ -119,6 +120,8 @@ describe('GameEngineService', () => {
     expect(view.scene.getObjectByName('building-north-west')).toBeDefined();
     expect(view.scene.getObjectByName('central-fountain')).toBeDefined();
     expect(labelTexts(view.scene)).toContain('Zur Marktgasse');
+    view.renderFrame(0);
+    expect(parent.textContent).toContain('Zur Marktgasse');
 
     zoneId = 'market-lane';
     view.renderFrame(16);
@@ -128,6 +131,9 @@ describe('GameEngineService', () => {
       expect.arrayContaining(['Zum Platz', 'Marktstand (Job)', 'Straßenessen']),
     );
     expect(labelTexts(view.scene)).not.toContain('Zur Marktgasse');
+    // Label-DOM der alten Zone darf nicht über der neuen schweben.
+    expect(parent.textContent).not.toContain('Zur Marktgasse');
+    expect(parent.textContent).toContain('Zum Platz');
 
     zoneId = 'central-square';
     view.renderFrame(32);
@@ -146,8 +152,9 @@ describe('GameEngineService', () => {
       y: 30,
     });
     let entities: WorldEntity[] = [self, npc];
+    const parent = document.createElement('div');
     const view = new GameEngineService().createGame(
-      document.createElement('div'),
+      parent,
       () => undefined,
       worldPort({
         entities: () => entities,
@@ -169,6 +176,7 @@ describe('GameEngineService', () => {
     expect(
       view.scene.getObjectByName(`entity:${npc.characterId}`),
     ).toBeUndefined();
+    expect(parent.textContent).not.toContain('Mara (NPC)');
     view.destroy();
   });
 

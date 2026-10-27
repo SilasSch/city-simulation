@@ -257,8 +257,20 @@ export function buildZoneGreybox(zoneId: WorldZoneId): THREE.Group {
   return zone;
 }
 
-/** Gibt Geometrien und Materialien eines Teilbaums frei. */
+/**
+ * Entfernt die DOM-Elemente aller Labels eines Teilbaums. CSS2DObject räumt
+ * sein Element nur auf, wenn es selbst entfernt wird, nicht als Kind einer
+ * entfernten Gruppe.
+ */
+export function detachLabels(root: THREE.Object3D): void {
+  root.traverse((object) => {
+    if (object instanceof CSS2DObject) object.element.remove();
+  });
+}
+
+/** Gibt Geometrien, Materialien und Labels eines Teilbaums frei. */
 export function disposeObject(root: THREE.Object3D): void {
+  detachLabels(root);
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
     object.geometry.dispose();
@@ -314,6 +326,7 @@ export class EntityLayer {
     for (const [characterId, avatar] of this.avatars) {
       if (currentIds.has(characterId)) continue;
       this.root.remove(avatar.group);
+      detachLabels(avatar.group);
       avatar.body.material.dispose();
       this.avatars.delete(characterId);
     }
@@ -352,6 +365,7 @@ export class EntityLayer {
   dispose(): void {
     for (const avatar of this.avatars.values()) {
       this.root.remove(avatar.group);
+      detachLabels(avatar.group);
       avatar.body.material.dispose();
     }
     this.avatars.clear();
