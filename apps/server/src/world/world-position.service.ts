@@ -33,7 +33,8 @@ export interface WorldPositionChange {
 
 interface PendingMove {
   direction: WorldDirection;
-  resolve: (change: WorldPositionChange) => void;
+  /** `null`: Schritt verworfen, weil die Position neu gesetzt wurde. */
+  resolve: (change: WorldPositionChange | null) => void;
   reject: (error: ApplicationError) => void;
 }
 
@@ -116,7 +117,7 @@ export class WorldPositionService
     y: number,
     interacting: boolean,
   ): void {
-    this.rejectQueue(this.positions.get(characterId));
+    this.dropQueue(this.positions.get(characterId));
     this.positions.set(characterId, {
       zoneId,
       x,
@@ -139,12 +140,17 @@ export class WorldPositionService
     if (live) live.interacting = interacting;
   }
 
-  /** Reiht einen Schritt ein; das Promise erfüllt sich im nächsten Tick. */
+  /**
+   * Reiht einen Schritt ein; das Promise erfüllt sich im nächsten Tick. Wird
+   * die Position vorher neu gesetzt (Eintritt, Portal, Verlassen), erfüllt es
+   * sich mit `null` statt mit einem Fehler, damit der Socket seinen gerade
+   * neu aufgebauten Weltkontext nicht wieder abbaut.
+   */
   enqueue(
     characterId: string,
     zoneId: WorldZoneId,
     direction: WorldDirection,
-  ): Promise<WorldPositionChange> {
+  ): Promise<WorldPositionChange | null> {
     const live = this.positions.get(characterId);
     if (!live || live.zoneId !== zoneId) {
       return Promise.reject(notEntered());
@@ -223,12 +229,12 @@ export class WorldPositionService
   /** Persistiert und entfernt einen Character, der die Welt verlässt. */
   async untrack(characterId: string): Promise<void> {
     await this.flush(characterId);
-    this.rejectQueue(this.positions.get(characterId));
+    this.dropQueue(this.positions.get(characterId));
     this.positions.delete(characterId);
   }
 
-  private rejectQueue(live: LivePosition | undefined): void {
+  private dropQueue(live: LivePosition | undefined): void {
     if (!live) return;
-    for (const move of live.queue.splice(0)) move.reject(notEntered());
+    for (const move of live.queue.splice(0)) move.resolve(null);
   }
 }

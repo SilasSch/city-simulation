@@ -100,7 +100,7 @@ describe('first simulation loop (integration)', () => {
 
     await world.interact(principal, entry.context, { objectId: 'bench-south' });
     const moved = await world.move(principal, entry.context, 'W');
-    expect(moved.abortedInteraction).toBe(true);
+    expect(moved?.abortedInteraction).toBe(true);
     expect(
       await prisma.characterWorldState.findUniqueOrThrow({
         where: { characterId: entry.context.characterId },

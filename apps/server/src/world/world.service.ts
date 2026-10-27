@@ -93,11 +93,13 @@ export class WorldService {
     }
 
     const spawn = worldZoneSpawn(zoneId);
-    // Ein Wiedereintritt liest die Position aus PostgreSQL: vorher sichern.
-    const previouslyEntered = this.enteredByProfile.get(
+    // Der Eintritt liest die Position aus PostgreSQL: die Tick-Position des
+    // ausgewählten Characters vorher sichern (er kann noch in einem anderen
+    // Tab unterwegs sein).
+    const selectedBefore = await this.worlds.findSelectedCharacter(
       principal.playerProfileId,
     );
-    if (previouslyEntered) await this.positions.flush(previouslyEntered);
+    if (selectedBefore) await this.positions.flush(selectedBefore.id);
     const simulatedNow = new Date(
       this.simulation.clockSnapshot().simulatedTime,
     );
@@ -318,13 +320,14 @@ export class WorldService {
 
   /**
    * Reiht einen Schritt in den Zonen-Tick ein. Der Pfad ist datenbankfrei,
-   * außer ein Schritt beendet eine laufende Interaktion.
+   * außer ein Schritt beendet eine laufende Interaktion. `null` heißt: Der
+   * Schritt wurde verworfen, weil die Position inzwischen neu gesetzt wurde.
    */
   async move(
     principal: AuthenticatedPrincipal,
     context: EnteredWorldContext,
     direction: WorldDirection,
-  ): Promise<WorldPositionChange> {
+  ): Promise<WorldPositionChange | null> {
     if (
       this.enteredByProfile.get(principal.playerProfileId) !==
       context.characterId
@@ -341,6 +344,7 @@ export class WorldService {
       context.zoneId,
       direction,
     );
+    if (!change) return null;
     if (change.abortedInteraction) {
       await this.simulation.abortInteraction(change.characterId);
     }

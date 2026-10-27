@@ -312,6 +312,8 @@ export class RealtimeGateway
             socketData.world,
             parsed.payload.direction,
           );
+          // Verworfen (Eintritt/Portal kam dazwischen): nichts zu senden.
+          if (!change) return;
           const confirmed =
             this.presence.entity(change.characterId) ??
             (await this.simulation.entity(change.characterId));
@@ -324,8 +326,10 @@ export class RealtimeGateway
               : confirmed.interaction,
           };
           this.presence.update(entity);
+          // Zone des angewendeten Schritts, nicht des inzwischen evtl.
+          // gewechselten Socket-Kontexts.
           client.nsp
-            .to(worldRoom(socketData.world.zoneId))
+            .to(worldRoom(change.zoneId))
             .emit(
               PROTOCOL_CHANNEL,
               createMessage(

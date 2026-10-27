@@ -90,6 +90,7 @@ describe('WorldService (integration)', () => {
     );
 
     const moved = await world.move(principal, firstEntry.context, 'E');
+    if (!moved) throw new Error('expected an applied move');
     const secondEntry = await world.enter(principal, WORLD_ZONE_ID);
     expect(
       secondEntry.snapshot.entities.find(
@@ -111,7 +112,7 @@ describe('WorldService (integration)', () => {
       world.move(principal, entry.context, 'E'),
       world.move(principal, entry.context, 'E'),
     ]);
-    expect(moves.map((move) => move.x)).toEqual([55, 60]);
+    expect(moves.map((move) => move?.x)).toEqual([55, 60]);
 
     // Bewegung schreibt nicht pro Schritt in PostgreSQL (ADR 0015).
     const beforeFlush = await prisma.characterWorldState.findUniqueOrThrow({
