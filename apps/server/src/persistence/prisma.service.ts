@@ -1,7 +1,7 @@
 import {
   Injectable,
   Logger,
-  OnModuleDestroy,
+  OnApplicationShutdown,
   OnModuleInit,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
@@ -13,7 +13,7 @@ import { PrismaClient } from '@prisma/client';
 @Injectable()
 export class PrismaService
   extends PrismaClient
-  implements OnModuleInit, OnModuleDestroy
+  implements OnModuleInit, OnApplicationShutdown
 {
   private readonly logger = new Logger(PrismaService.name);
 
@@ -21,7 +21,11 @@ export class PrismaService
     await this.$connect();
   }
 
-  async onModuleDestroy(): Promise<void> {
+  /**
+   * Trennt erst nach `beforeApplicationShutdown`, damit dort noch letzte
+   * Weltpositionen geschrieben werden können (ADR 0015).
+   */
+  async onApplicationShutdown(): Promise<void> {
     await this.$disconnect();
   }
 

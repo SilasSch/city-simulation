@@ -155,6 +155,7 @@ export class RealtimeGateway
     const departure = this.presence.leave(client.id);
     if (departure?.lastSocket) {
       await this.simulation.abortInteraction(departure.characterId);
+      await this.world.leave(departure.characterId);
     }
     this.announceDeparture(client, departure);
     this.logger.log({
@@ -218,6 +219,7 @@ export class RealtimeGateway
           const departure = this.presence.leave(client.id);
           if (departure?.lastSocket) {
             await this.simulation.abortInteraction(departure.characterId);
+            await this.world.leave(departure.characterId);
           }
           this.announceDeparture(client, departure);
           delete socketData.world;
@@ -305,11 +307,22 @@ export class RealtimeGateway
               'Enter the world before moving',
             );
           }
-          const entity = await this.world.move(
+          const change = await this.world.move(
             socketData.principal,
             socketData.world,
             parsed.payload.direction,
           );
+          const confirmed =
+            this.presence.entity(change.characterId) ??
+            (await this.simulation.entity(change.characterId));
+          const entity = {
+            ...confirmed,
+            x: change.x,
+            y: change.y,
+            interaction: change.abortedInteraction
+              ? null
+              : confirmed.interaction,
+          };
           this.presence.update(entity);
           client.nsp
             .to(worldRoom(socketData.world.zoneId))
@@ -334,6 +347,7 @@ export class RealtimeGateway
           const departure = this.presence.leave(client.id);
           if (departure?.lastSocket) {
             await this.simulation.abortInteraction(departure.characterId);
+            await this.world.leave(departure.characterId);
           }
           this.announceDeparture(client, departure);
           delete socketData.world;
@@ -376,7 +390,9 @@ export class RealtimeGateway
               createMessage(SIMULATION_CLOCK_EVENT_TYPE, tick.clock),
             );
         }
-        for (const entity of tick.entities) {
+        for (const stored of tick.entities) {
+          // PostgreSQL hinkt der Tick-Position bis zum nächsten Flush hinterher.
+          const entity = this.world.withLivePosition(stored);
           this.presence.update(entity);
           const zoneId = this.presence.zoneOf(entity.characterId);
           if (!zoneId) continue;

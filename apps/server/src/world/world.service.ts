@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   NPC_INTERACT_PAUSE_TICKS,
   NPC_INTERACTION_RANGE,
-  WORLD_MOVE_STEP,
   WORLD_ZONE_IDS,
   centralSquareNpcGreeting,
   isNpcWorldInteractPayload,
@@ -21,6 +20,10 @@ import { PrismaService } from '../persistence/prisma.service';
 import { ApplicationError } from '../shared/application-error';
 import { SimulationService } from '../simulation/simulation.service';
 import type { EnteredWorldContext } from './world.constants';
+import {
+  WorldPositionService,
+  type WorldPositionChange,
+} from './world-position.service';
 import { WorldPresenceService } from './world-presence.service';
 import { WorldRepository } from './world.repository';
 
@@ -38,36 +41,46 @@ export type WorldInteractOutcome =
       message: string;
     };
 
-const MAX_MOVE_RETRIES = 8;
-
-function nextPosition(
-  x: number,
-  y: number,
-  direction: WorldDirection,
-): { x: number; y: number } {
-  switch (direction) {
-    case 'N':
-      return { x, y: y - WORLD_MOVE_STEP };
-    case 'E':
-      return { x: x + WORLD_MOVE_STEP, y };
-    case 'S':
-      return { x, y: y + WORLD_MOVE_STEP };
-    case 'W':
-      return { x: x - WORLD_MOVE_STEP, y };
-  }
-}
-
 /** Serverautoritärer Eintritt und Bewegungszustand der statischen Zone. */
 @Injectable()
 export class WorldService {
   private readonly logger = new Logger(WorldService.name);
+  /** Zuletzt eingetretener Character je PlayerProfile (DB-freier Move-Pfad). */
+  private readonly enteredByProfile = new Map<string, string>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly worlds: WorldRepository,
     private readonly simulation: SimulationService,
     private readonly presence: WorldPresenceService,
+    private readonly positions: WorldPositionService,
   ) {}
+
+  /** Ersetzt die persistierte durch die Tick-Position, falls bekannt. */
+  withLivePosition(entity: WorldEntity): WorldEntity {
+    const live = this.positions.position(entity.characterId);
+    return live ? { ...entity, x: live.x, y: live.y } : entity;
+  }
+
+  /** Letzter Socket eines Characters ist weg: Position sichern, Tick verlassen. */
+  async leave(characterId: string): Promise<void> {
+    await this.positions.untrack(characterId);
+    for (const [profileId, entered] of this.enteredByProfile) {
+      if (entered === characterId) this.enteredByProfile.delete(profileId);
+    }
+  }
+
+  private async snapshotOf(
+    context: EnteredWorldContext,
+  ): Promise<WorldSnapshotPayload> {
+    const entities = await this.simulation.entitiesInZone(context.zoneId);
+    return {
+      zoneId: context.zoneId,
+      selfCharacterId: context.characterId,
+      clock: this.simulation.clockSnapshot(),
+      entities: entities.map((entity) => this.withLivePosition(entity)),
+    };
+  }
 
   async enter(
     principal: AuthenticatedPrincipal,
@@ -80,6 +93,11 @@ export class WorldService {
     }
 
     const spawn = worldZoneSpawn(zoneId);
+    // Ein Wiedereintritt liest die Position aus PostgreSQL: vorher sichern.
+    const previouslyEntered = this.enteredByProfile.get(
+      principal.playerProfileId,
+    );
+    if (previouslyEntered) await this.positions.flush(previouslyEntered);
     const simulatedNow = new Date(
       this.simulation.clockSnapshot().simulatedTime,
     );
@@ -112,14 +130,19 @@ export class WorldService {
       return { characterId: selected.id, zoneId } satisfies EnteredWorldContext;
     });
 
+    const stored = await this.simulation.entity(context.characterId);
+    this.positions.track(
+      context.characterId,
+      zoneId,
+      stored.x,
+      stored.y,
+      stored.interaction !== null,
+    );
+    this.enteredByProfile.set(principal.playerProfileId, context.characterId);
+
     const entry: WorldEntry = {
       context,
-      snapshot: {
-        zoneId,
-        selfCharacterId: context.characterId,
-        clock: this.simulation.clockSnapshot(),
-        entities: await this.simulation.entitiesInZone(zoneId),
-      },
+      snapshot: await this.snapshotOf(context),
     };
     this.logger.log({
       event: 'world-entered',
@@ -140,6 +163,8 @@ export class WorldService {
   ): Promise<WorldEntry> {
     const portal = worldZonePortal(payload.portalId);
     const spawn = worldZoneSpawn(portal.toZoneId);
+    // Reichweite gegen die aktuelle Tick-Position prüfen.
+    await this.positions.flush(context.characterId);
 
     const contextAfter = await this.prisma.$transaction(async (tx) => {
       const selected = await this.worlds.findSelectedCharacter(
@@ -189,14 +214,16 @@ export class WorldService {
       } satisfies EnteredWorldContext;
     });
 
+    this.positions.track(
+      contextAfter.characterId,
+      contextAfter.zoneId,
+      spawn.x,
+      spawn.y,
+      false,
+    );
     const entry: WorldEntry = {
       context: contextAfter,
-      snapshot: {
-        zoneId: contextAfter.zoneId,
-        selfCharacterId: contextAfter.characterId,
-        clock: this.simulation.clockSnapshot(),
-        entities: await this.simulation.entitiesInZone(contextAfter.zoneId),
-      },
+      snapshot: await this.snapshotOf(contextAfter),
     };
     this.logger.log({
       event: 'world-transitioned',
@@ -213,6 +240,8 @@ export class WorldService {
     context: EnteredWorldContext,
     payload: WorldInteractPayload,
   ): Promise<WorldInteractOutcome> {
+    // Reichweite gegen die aktuelle Tick-Position prüfen.
+    await this.positions.flush(context.characterId);
     const selected = await this.worlds.findSelectedCharacter(
       principal.playerProfileId,
       this.prisma,
@@ -238,7 +267,11 @@ export class WorldService {
       context.characterId,
       payload.objectId,
     );
-    return { kind: 'object', entity };
+    this.positions.markInteracting(
+      context.characterId,
+      entity.interaction !== null,
+    );
+    return { kind: 'object', entity: this.withLivePosition(entity) };
   }
 
   private interactNpc(
@@ -283,74 +316,41 @@ export class WorldService {
     };
   }
 
+  /**
+   * Reiht einen Schritt in den Zonen-Tick ein. Der Pfad ist datenbankfrei,
+   * außer ein Schritt beendet eine laufende Interaktion.
+   */
   async move(
     principal: AuthenticatedPrincipal,
     context: EnteredWorldContext,
     direction: WorldDirection,
-  ): Promise<WorldEntity> {
-    for (let attempt = 0; attempt < MAX_MOVE_RETRIES; attempt += 1) {
-      const moved = await this.prisma.$transaction(async (tx) => {
-        const selected = await this.worlds.findSelectedCharacter(
-          principal.playerProfileId,
-          tx,
-        );
-        if (selected?.id !== context.characterId) {
-          throw new ApplicationError(
-            'WORLD_NOT_ENTERED',
-            409,
-            'Enter the world with the currently selected character first',
-          );
-        }
-
-        const state = await this.worlds.findState(context.characterId, tx);
-        if (!state || state.zoneId !== context.zoneId) {
-          throw new ApplicationError(
-            'WORLD_NOT_ENTERED',
-            409,
-            'Enter the world before moving',
-          );
-        }
-
-        const position = nextPosition(state.x, state.y, direction);
-        if (!isWorldPositionWalkable(position.x, position.y, context.zoneId)) {
-          throw new ApplicationError(
-            'WORLD_MOVE_BLOCKED',
-            409,
-            'Movement is blocked by the zone map',
-          );
-        }
-        const updated = await this.worlds.tryMove(
-          context.characterId,
-          state.revision,
-          position.x,
-          position.y,
-          tx,
-        );
-        if (!updated) return null;
-
-        return {
-          characterId: selected.id,
-          ...position,
-        };
-      });
-
-      if (moved) {
-        const entity = await this.simulation.entity(moved.characterId);
-        this.logger.log({
-          event: 'world-moved',
-          characterId: entity.characterId,
-          direction,
-          x: entity.x,
-          y: entity.y,
-        });
-        return entity;
-      }
+  ): Promise<WorldPositionChange> {
+    if (
+      this.enteredByProfile.get(principal.playerProfileId) !==
+      context.characterId
+    ) {
+      throw new ApplicationError(
+        'WORLD_NOT_ENTERED',
+        409,
+        'Enter the world with the currently selected character first',
+      );
     }
 
-    throw new ApplicationError(
-      'PERSISTENCE_ERROR',
-      503,
-      'World position could not be updated',
+    const change = await this.positions.enqueue(
+      context.characterId,
+      context.zoneId,
+      direction,
     );
+    if (change.abortedInteraction) {
+      await this.simulation.abortInteraction(change.characterId);
+    }
+    this.logger.log({
+      event: 'world-moved',
+      characterId: change.characterId,
+      direction,
+      x: change.x,
+      y: change.y,
+    });
+    return change;
   }
 }
