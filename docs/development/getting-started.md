@@ -123,7 +123,7 @@ ein erreichbares PostgreSQL.
    Session-Tokens werden niemals geloggt.
 8. **Transport-Wahl:** Auth und Character-CRUD bleiben REST; World-Commands,
    Snapshots und Broadcasts laufen versioniert über WebSocket.
-9. **Keine optimistische Weltmutation:** Client und Phaser projizieren nur
+9. **Keine optimistische Weltmutation:** Client und Three.js projizieren nur
    bestätigte Snapshots/Events. Fachliche Bewegung bleibt im `WorldService`.
 10. Tests sind Teil des Features: Vertrag, Service/Integration, Client-
     Projektion und bei vollständigen Nutzerflüssen Playwright.

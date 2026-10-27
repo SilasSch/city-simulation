@@ -1,81 +1,77 @@
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as THREE from 'three';
+import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import type { WorldEntity } from '@city/game-protocol';
+import {
+  GameEngineService,
+  type WorldRenderer,
+  type WorldScenePort,
+} from './game-engine.service';
 import { worldDirectionForKey } from './world-input';
 
 /**
- * jsdom liefert keinen echten 2D-Canvas-Kontext. Phaser führt bereits beim
- * Modul-Import Feature-Checks auf einem Canvas aus — daher minimaler Stub,
- * bevor das Modul dynamisch importiert wird.
+ * jsdom hat kein WebGL. Der Fake ersetzt nur den Renderer; Szene, Kamera,
+ * Labels und Eingaben laufen echt.
  */
-function stubCanvas2dContext(): void {
-  const fakeContext = {
-    fillStyle: '',
-    fillRect: () => undefined,
-    getImageData: (_x: number, _y: number, w: number, h: number) => ({
-      data: new Uint8ClampedArray(w * h * 4),
-    }),
-    putImageData: () => undefined,
-    createImageData: (w: number, h: number) => ({
-      data: new Uint8ClampedArray(w * h * 4),
-    }),
-    drawImage: () => undefined,
-    clearRect: () => undefined,
-    save: () => undefined,
-    restore: () => undefined,
-    scale: () => undefined,
-    translate: () => undefined,
-    fillText: () => undefined,
-    strokeText: () => undefined,
-    measureText: (text: string) => ({
-      width: text.length * 8,
-      actualBoundingBoxAscent: 10,
-      actualBoundingBoxDescent: 3,
-    }),
-    getContextAttributes: () => ({ willReadFrequently: true }),
+function fakeRenderer(): WorldRenderer & {
+  loop: ((time: number) => void) | null;
+  renders: number;
+  disposed: boolean;
+} {
+  return {
+    domElement: document.createElement('canvas'),
+    loop: null,
+    renders: 0,
+    disposed: false,
+    setPixelRatio: () => undefined,
+    setSize: () => undefined,
+    render() {
+      this.renders += 1;
+    },
+    setAnimationLoop(callback) {
+      this.loop = callback;
+    },
+    dispose() {
+      this.disposed = true;
+    },
   };
-  HTMLCanvasElement.prototype.getContext = function getContext(
-    contextId: string,
-  ): unknown {
-    return contextId === '2d' ? fakeContext : null;
-  } as typeof HTMLCanvasElement.prototype.getContext;
+}
 
-  // jsdom implementiert requestAnimationFrame nicht bzw. feuert es nicht
-  // zuverlässig — Phasers Game-Loop benötigt ihn auch im HEADLESS-Modus.
-  window.requestAnimationFrame = (callback: FrameRequestCallback): number =>
-    setTimeout(() => callback(performance.now()), 16) as unknown as number;
-  window.cancelAnimationFrame = (handle: number): void => clearTimeout(handle);
+function entity(overrides: Partial<WorldEntity>): WorldEntity {
+  return {
+    characterId: '00000000-0000-4000-8000-000000000001',
+    kind: 'character',
+    name: 'Ada',
+    x: 50,
+    y: 70,
+    energy: 80,
+    money: 0,
+    interaction: null,
+    ...overrides,
+  };
+}
 
-  // jsdom lädt keine Bilder — Phasers TextureManager wartet beim Boot auf
-  // load-Events der Default-Texturen. Stub feuert 'load' sofort.
-  class ImmediateImage {
-    private listeners = new Map<string, Array<() => void>>();
-    onload: (() => void) | null = null;
-    onerror: (() => void) | null = null;
-    width = 32;
-    height = 32;
-
-    addEventListener(type: string, listener: () => void): void {
-      this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+function labelTexts(scene: THREE.Object3D): string[] {
+  const texts: string[] = [];
+  scene.traverse((object) => {
+    if (object instanceof CSS2DObject) {
+      texts.push(object.element.textContent ?? '');
     }
+  });
+  return texts;
+}
 
-    removeEventListener(): void {
-      /* nichts zu tun im Stub */
-    }
-
-    set src(_value: string) {
-      queueMicrotask(() => {
-        this.onload?.();
-        for (const listener of this.listeners.get('load') ?? []) listener();
-      });
-    }
-  }
-  window.Image = ImmediateImage as unknown as typeof Image;
+function worldPort(overrides: Partial<WorldScenePort> = {}): WorldScenePort {
+  return {
+    entities: () => [],
+    selfCharacterId: () => null,
+    zoneId: () => 'central-square',
+    move: vi.fn(),
+    ...overrides,
+  };
 }
 
 describe('GameEngineService', () => {
-  beforeAll(() => {
-    stubCanvas2dContext();
-  });
-
   it('maps WASD and arrow keys to bounded movement commands', () => {
     expect(worldDirectionForKey('w')).toBe('N');
     expect(worldDirectionForKey('ArrowRight')).toBe('E');
@@ -85,120 +81,128 @@ describe('GameEngineService', () => {
     expect(worldDirectionForKey('w', true)).toBeNull();
   });
 
-  it('boots Phaser and destroys it cleanly', async () => {
-    const [{ GameEngineService }, Phaser] = await Promise.all([
-      import('./game-engine.service'),
-      import('phaser'),
-    ]);
-
-    const engine = new GameEngineService();
+  it('boots the 3D view after the first frame and destroys it cleanly', () => {
+    const renderer = fakeRenderer();
     const parent = document.createElement('div');
+    const onBoot = vi.fn();
 
-    // HEADLESS: kein Canvas/WebGL nötig — der Test beweist den technischen
-    // Start der Engine; Rendering wird hier nicht geprüft.
-    let resolveBoot!: (game: InstanceType<typeof Phaser.Game>) => void;
-    const bootedPromise = new Promise<InstanceType<typeof Phaser.Game>>(
-      (resolve) => {
-        resolveBoot = resolve;
-      },
-    );
-    const game = engine.createGame(
+    const view = new GameEngineService().createGame(
       parent,
-      () => resolveBoot(game),
-      Phaser.HEADLESS,
+      onBoot,
+      worldPort(),
+      () => renderer,
     );
-    expect(game).toBeInstanceOf(Phaser.Game);
+    expect(parent.contains(renderer.domElement)).toBe(true);
+    expect(renderer.loop).not.toBeNull();
+    expect(onBoot).not.toHaveBeenCalled();
 
-    const bootedGame = await bootedPromise;
-    expect(bootedGame).toBe(game);
-    expect(game.scene.getScene('boot')).toBeDefined();
-    engine.destroyGame(game);
-    // Der Shutdown läuft im nächsten Tick des Game-Loops; Phaser 4 setzt
-    // isRunning dabei nicht zurück, wohl aber den Loop-Status.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(game.loop.running).toBe(false);
-  }, 15_000);
+    renderer.loop?.(0);
+    expect(onBoot).toHaveBeenCalledTimes(1);
+    expect(renderer.renders).toBe(1);
 
-  it('swaps map art when confirmed zoneId changes', async () => {
-    const [{ GameEngineService }, Phaser] = await Promise.all([
-      import('./game-engine.service'),
-      import('phaser'),
-    ]);
+    new GameEngineService().destroyGame(view);
+    expect(renderer.loop).toBeNull();
+    expect(renderer.disposed).toBe(true);
+    expect(parent.childElementCount).toBe(0);
+  });
 
-    // String zone ids — avoid importing @city/game-protocol here so Nx does
-    // not mark the lib as lazy-loaded (which would break static imports elsewhere).
-    let zoneId: 'central-square' | 'market-lane' | null = 'central-square';
-    const world = {
-      entities: () => [],
-      selfCharacterId: () => null,
-      zoneId: () => zoneId,
-      move: () => undefined,
-    };
-
-    const engine = new GameEngineService();
+  it('rebuilds the grey-box when the confirmed zoneId changes', () => {
+    let zoneId: 'central-square' | 'market-lane' = 'central-square';
+    const renderer = fakeRenderer();
     const parent = document.createElement('div');
-    let resolveBoot!: (game: InstanceType<typeof Phaser.Game>) => void;
-    const bootedPromise = new Promise<InstanceType<typeof Phaser.Game>>(
-      (resolve) => {
-        resolveBoot = resolve;
-      },
-    );
-    const game = engine.createGame(
+    const view = new GameEngineService().createGame(
       parent,
-      () => resolveBoot(game),
-      Phaser.HEADLESS,
-      world,
+      () => undefined,
+      worldPort({ zoneId: () => zoneId }),
+      () => renderer,
     );
-    await bootedPromise;
 
-    const scene = game.scene.getScene('boot') as Phaser.Scene & {
-      update: (time: number, delta: number) => void;
-    };
-    const textsBefore = scene.children.list.filter(
-      (child) =>
-        'text' in child &&
-        typeof (child as Phaser.GameObjects.Text).text === 'string' &&
-        (child as Phaser.GameObjects.Text).text.includes('CENTRAL SQUARE'),
-    );
-    expect(textsBefore.length).toBeGreaterThan(0);
+    expect(view.scene.getObjectByName('building-north-west')).toBeDefined();
+    expect(view.scene.getObjectByName('central-fountain')).toBeDefined();
+    expect(labelTexts(view.scene)).toContain('Zur Marktgasse');
+    view.renderFrame(0);
+    expect(parent.textContent).toContain('Zur Marktgasse');
 
     zoneId = 'market-lane';
-    scene.update(0, 16);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-
-    const textsAfter = scene.children.list
-      .filter(
-        (child) =>
-          'text' in child &&
-          typeof (child as Phaser.GameObjects.Text).text === 'string',
-      )
-      .map((child) => (child as Phaser.GameObjects.Text).text);
-    expect(textsAfter.some((text) => text.includes('MARKTGASSE'))).toBe(true);
-    expect(textsAfter.some((text) => text.includes('JOB'))).toBe(true);
-    expect(textsAfter.some((text) => text.includes('SHOP'))).toBe(true);
-    expect(textsAfter.some((text) => text.includes('CENTRAL SQUARE'))).toBe(
-      false,
+    view.renderFrame(16);
+    expect(view.scene.getObjectByName('building-north-west')).toBeUndefined();
+    expect(view.scene.getObjectByName('stall-north-west')).toBeDefined();
+    expect(labelTexts(view.scene)).toEqual(
+      expect.arrayContaining(['Zum Platz', 'Marktstand (Job)', 'Straßenessen']),
     );
-    expect(textsAfter.some((text) => text.includes('Zum Platz'))).toBe(true);
+    expect(labelTexts(view.scene)).not.toContain('Zur Marktgasse');
+    // Label-DOM der alten Zone darf nicht über der neuen schweben.
+    expect(parent.textContent).not.toContain('Zur Marktgasse');
+    expect(parent.textContent).toContain('Zum Platz');
 
     zoneId = 'central-square';
-    scene.update(0, 16);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    const textsBack = scene.children.list
-      .filter(
-        (child) =>
-          'text' in child &&
-          typeof (child as Phaser.GameObjects.Text).text === 'string',
-      )
-      .map((child) => (child as Phaser.GameObjects.Text).text);
-    expect(textsBack.some((text) => text.includes('CENTRAL SQUARE'))).toBe(
-      true,
-    );
-    expect(textsBack.some((text) => text.includes('Zur Marktgasse'))).toBe(
-      true,
+    view.renderFrame(32);
+    expect(view.scene.getObjectByName('stall-north-west')).toBeUndefined();
+    expect(labelTexts(view.scene)).toContain('Zur Marktgasse');
+    view.destroy();
+  });
+
+  it('mirrors confirmed entities and removes them when they leave', () => {
+    const self = entity({});
+    const npc = entity({
+      characterId: '00000000-0000-4000-8000-000000000002',
+      kind: 'npc',
+      name: 'Mara',
+      x: 30,
+      y: 30,
+    });
+    let entities: WorldEntity[] = [self, npc];
+    const parent = document.createElement('div');
+    const view = new GameEngineService().createGame(
+      parent,
+      () => undefined,
+      worldPort({
+        entities: () => entities,
+        selfCharacterId: () => self.characterId,
+      }),
+      fakeRenderer,
     );
 
-    engine.destroyGame(game);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }, 15_000);
+    view.renderFrame(0);
+    const selfAvatar = view.scene.getObjectByName(`entity:${self.characterId}`);
+    expect(selfAvatar?.position.x).toBeCloseTo(0);
+    expect(selfAvatar?.position.z).toBeCloseTo(10);
+    expect(labelTexts(view.scene)).toEqual(
+      expect.arrayContaining(['Ada', 'Mara (NPC)']),
+    );
+
+    entities = [self];
+    view.renderFrame(16);
+    expect(
+      view.scene.getObjectByName(`entity:${npc.characterId}`),
+    ).toBeUndefined();
+    expect(parent.textContent).not.toContain('Mara (NPC)');
+    view.destroy();
+  });
+
+  it('sends movement commands from the keyboard but not from form fields', () => {
+    const port = worldPort();
+    const view = new GameEngineService().createGame(
+      document.createElement('div'),
+      () => undefined,
+      port,
+      fakeRenderer,
+    );
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w' }));
+    expect(port.move).toHaveBeenCalledWith('N');
+
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'd', bubbles: true }),
+    );
+    expect(port.move).toHaveBeenCalledTimes(1);
+    input.remove();
+
+    view.destroy();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's' }));
+    expect(port.move).toHaveBeenCalledTimes(1);
+  });
 });
