@@ -11,6 +11,8 @@ import {
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   configureApplication(app);
+  // SIGTERM/SIGINT durchlaufen die Shutdown-Hooks (letzter Positions-Flush).
+  app.enableShutdownHooks();
 
   const config = app.get(ConfigService<AppConfig, true>);
   const port = config.get('SERVER_PORT', { infer: true });
