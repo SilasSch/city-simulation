@@ -10,9 +10,9 @@ import {
   WORLD_ENTITY_UPDATED_EVENT_TYPE,
   WORLD_INTERACT_COMMAND_TYPE,
   WORLD_INTERACT_RESULT_EVENT_TYPE,
-  WORLD_MOVE_COMMAND_TYPE,
+  WORLD_INPUT_COMMAND_TYPE,
   WORLD_TRANSITION_COMMAND_TYPE,
-  WORLD_POSITION_CHANGED_EVENT_TYPE,
+  WORLD_POSITIONS_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
   connectPayloadSchema,
   connectionEstablishedPayloadSchema,
@@ -25,9 +25,9 @@ import {
   worldEntityUpdatedPayloadSchema,
   worldInteractPayloadSchema,
   worldInteractResultPayloadSchema,
-  worldMovePayloadSchema,
+  worldInputPayloadSchema,
   worldTransitionPayloadSchema,
-  worldPositionChangedPayloadSchema,
+  worldPositionsPayloadSchema,
   worldSnapshotPayloadSchema,
 } from './protocol';
 import type {
@@ -43,9 +43,9 @@ import type {
   WorldEntityUpdatedPayload,
   WorldInteractPayload,
   WorldInteractResultPayload,
-  WorldMovePayload,
+  WorldInputPayload,
   WorldTransitionPayload,
-  WorldPositionChangedPayload,
+  WorldPositionsPayload,
   WorldSnapshotPayload,
 } from './protocol';
 
@@ -62,9 +62,9 @@ export type ParsedMessage =
       payload: WorldEnterPayload;
     }
   | {
-      kind: typeof WORLD_MOVE_COMMAND_TYPE;
+      kind: typeof WORLD_INPUT_COMMAND_TYPE;
       envelope: ProtocolEnvelope;
-      payload: WorldMovePayload;
+      payload: WorldInputPayload;
     }
   | {
       kind: typeof WORLD_INTERACT_COMMAND_TYPE;
@@ -95,9 +95,9 @@ export type ParsedServerMessage =
       payload: WorldSnapshotPayload;
     }
   | {
-      kind: typeof WORLD_POSITION_CHANGED_EVENT_TYPE;
+      kind: typeof WORLD_POSITIONS_EVENT_TYPE;
       envelope: ProtocolEnvelope;
-      payload: WorldPositionChangedPayload;
+      payload: WorldPositionsPayload;
     }
   | {
       kind: typeof WORLD_ENTITY_JOINED_EVENT_TYPE;
@@ -210,14 +210,14 @@ export function parseIncomingMessage(raw: unknown): ParseResult {
         payload: payloadResult.data,
       };
     }
-    case WORLD_MOVE_COMMAND_TYPE: {
-      const payloadResult = worldMovePayloadSchema.safeParse(envelope.payload);
+    case WORLD_INPUT_COMMAND_TYPE: {
+      const payloadResult = worldInputPayloadSchema.safeParse(envelope.payload);
       if (!payloadResult.success) {
-        return invalidPayload(envelope, 'world-move command');
+        return invalidPayload(envelope, 'world-input command');
       }
       return {
         ok: true,
-        kind: WORLD_MOVE_COMMAND_TYPE,
+        kind: WORLD_INPUT_COMMAND_TYPE,
         envelope,
         payload: payloadResult.data,
       };
@@ -312,16 +312,16 @@ export function parseServerMessage(raw: unknown): ParseServerResult {
         payload: payloadResult.data,
       };
     }
-    case WORLD_POSITION_CHANGED_EVENT_TYPE: {
-      const payloadResult = worldPositionChangedPayloadSchema.safeParse(
+    case WORLD_POSITIONS_EVENT_TYPE: {
+      const payloadResult = worldPositionsPayloadSchema.safeParse(
         envelope.payload,
       );
       if (!payloadResult.success) {
-        return invalidPayload(envelope, 'world-position-changed event');
+        return invalidPayload(envelope, 'world-positions event');
       }
       return {
         ok: true,
-        kind: WORLD_POSITION_CHANGED_EVENT_TYPE,
+        kind: WORLD_POSITIONS_EVENT_TYPE,
         envelope,
         payload: payloadResult.data,
       };

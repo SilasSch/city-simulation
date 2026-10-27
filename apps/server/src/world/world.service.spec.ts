@@ -4,7 +4,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   MARKET_LANE_SPAWN_POSITION,
   MARKET_LANE_ZONE_ID,
+  WORLD_ENTITY_RADIUS,
+  WORLD_MOVE_SPEED,
   WORLD_SPAWN_POSITION,
+  WORLD_TICK_SECONDS,
   WORLD_ZONE_ID,
   worldZonePortal,
 } from '@city/game-protocol';
@@ -49,6 +52,21 @@ describe('WorldService (integration)', () => {
     return resolution.session.principal;
   }
 
+  let seq = 0;
+  /** Läuft `ticks` feste Ticks lang in Richtung (x, y) und bleibt stehen. */
+  function walk(
+    principal: AuthenticatedPrincipal,
+    context: Parameters<WorldService['input']>[1],
+    x: number,
+    y: number,
+    ticks: number,
+  ): void {
+    world.input(principal, context, { seq: (seq += 1), x, y });
+    for (let tick = 0; tick < ticks; tick += 1) positions.tick();
+    world.input(principal, context, { seq: (seq += 1), x: 0, y: 0 });
+  }
+  const STEP = WORLD_MOVE_SPEED * WORLD_TICK_SECONDS;
+
   async function playerWithCharacter(
     email: string,
     name = 'Ayla',
@@ -89,30 +107,39 @@ describe('WorldService (integration)', () => {
       ]),
     );
 
-    const moved = await world.move(principal, firstEntry.context, 'E');
-    if (!moved) throw new Error('expected an applied move');
+    const characterId = firstEntry.context.characterId;
+    walk(principal, firstEntry.context, 1, 0, 10);
+    const moved = positions.position(characterId);
+    expect(moved?.x).toBeCloseTo(WORLD_SPAWN_POSITION.x + 10 * STEP);
+
     const secondEntry = await world.enter(principal, WORLD_ZONE_ID);
-    expect(
-      secondEntry.snapshot.entities.find(
-        (entity) => entity.characterId === moved.characterId,
-      ),
-    ).toMatchObject({ x: moved.x, y: moved.y });
+    const restored = secondEntry.snapshot.entities.find(
+      (entity) => entity.characterId === characterId,
+    );
+    expect(restored?.x).toBeCloseTo(moved?.x ?? Number.NaN);
+    expect(restored?.y).toBe(WORLD_SPAWN_POSITION.y);
 
     const stored = await prisma.characterWorldState.findUniqueOrThrow({
-      where: { characterId: moved.characterId },
+      where: { characterId },
     });
     expect(stored.revision).toBe(1);
   });
 
-  it('applies concurrent moves in the tick and persists them only on flush', async () => {
+  it('moves continuously in the tick and persists only on flush', async () => {
     const principal = await playerWithCharacter('movement@example.com');
     const entry = await world.enter(principal, WORLD_ZONE_ID);
 
-    const moves = await Promise.all([
-      world.move(principal, entry.context, 'E'),
-      world.move(principal, entry.context, 'E'),
-    ]);
-    expect(moves.map((move) => move?.x)).toEqual([55, 60]);
+    walk(principal, entry.context, 1, 0, 20);
+    expect(positions.position(entry.context.characterId)?.x).toBeCloseTo(
+      WORLD_SPAWN_POSITION.x + 20 * STEP,
+    );
+
+    // Eine veraltete Sequenz setzt die Figur nicht wieder in Bewegung.
+    world.input(principal, entry.context, { seq: 1, x: 1, y: 0 });
+    positions.tick();
+    expect(positions.position(entry.context.characterId)?.x).toBeCloseTo(
+      WORLD_SPAWN_POSITION.x + 20 * STEP,
+    );
 
     // Bewegung schreibt nicht pro Schritt in PostgreSQL (ADR 0015).
     const beforeFlush = await prisma.characterWorldState.findUniqueOrThrow({
@@ -127,12 +154,12 @@ describe('WorldService (integration)', () => {
     const stored = await prisma.characterWorldState.findUniqueOrThrow({
       where: { characterId: entry.context.characterId },
     });
-    expect(stored.x).toBe(60);
+    expect(stored.x).toBeCloseTo(WORLD_SPAWN_POSITION.x + 20 * STEP);
     expect(stored.y).toBe(WORLD_SPAWN_POSITION.y);
     expect(stored.revision).toBe(1);
   });
 
-  it('rejects world bounds and obstacles without changing persisted state', async () => {
+  it('stops at world bounds and obstacles without persisting per step', async () => {
     const principal = await playerWithCharacter('collision@example.com');
     const entry = await world.enter(principal, WORLD_ZONE_ID);
 
@@ -141,18 +168,22 @@ describe('WorldService (integration)', () => {
       data: { x: 0, y: 50, revision: 10 },
     });
     await world.enter(principal, WORLD_ZONE_ID);
-    await expect(
-      world.move(principal, entry.context, 'W'),
-    ).rejects.toMatchObject({ code: 'WORLD_MOVE_BLOCKED' });
+    walk(principal, entry.context, -1, 0, 10);
+    expect(positions.position(entry.context.characterId)).toMatchObject({
+      x: WORLD_ENTITY_RADIUS,
+      y: 50,
+    });
 
     await prisma.characterWorldState.update({
       where: { characterId: entry.context.characterId },
       data: { x: 30, y: 10, revision: 11 },
     });
     await world.enter(principal, WORLD_ZONE_ID);
-    await expect(
-      world.move(principal, entry.context, 'W'),
-    ).rejects.toMatchObject({ code: 'WORLD_MOVE_BLOCKED' });
+    // building-north-west reicht bis x = 25.
+    walk(principal, entry.context, -1, 0, 30);
+    expect(positions.position(entry.context.characterId)?.x).toBeCloseTo(
+      25 + WORLD_ENTITY_RADIUS,
+    );
 
     const stored = await prisma.characterWorldState.findUniqueOrThrow({
       where: { characterId: entry.context.characterId },
@@ -187,9 +218,11 @@ describe('WorldService (integration)', () => {
     await characters.selectCharacter(principal, second.id);
     await world.enter(principal, WORLD_ZONE_ID);
 
-    await expect(
-      world.move(principal, entry.context, 'E'),
-    ).rejects.toMatchObject({ code: 'WORLD_NOT_ENTERED' });
+    expect(() =>
+      world.input(principal, entry.context, { seq: 1, x: 1, y: 0 }),
+    ).toThrowError(
+      expect.objectContaining({ code: 'WORLD_NOT_ENTERED' }) as Error,
+    );
   });
 
   it('enters market-lane at its spawn without central-square NPCs', async () => {
@@ -219,7 +252,7 @@ describe('WorldService (integration)', () => {
   it('rejects unknown zones and relocates when switching into market-lane', async () => {
     const principal = await playerWithCharacter('switch-zone@example.com');
     const square = await world.enter(principal, WORLD_ZONE_ID);
-    await world.move(principal, square.context, 'E');
+    walk(principal, square.context, 1, 0, 5);
 
     await expect(
       world.enter(principal, 'unknown-zone' as typeof WORLD_ZONE_ID),

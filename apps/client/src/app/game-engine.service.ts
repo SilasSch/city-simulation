@@ -2,24 +2,29 @@ import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
-import type {
-  WorldDirection,
-  WorldEntity,
-  WorldZoneId,
-} from '@city/game-protocol';
+import type { WorldEntity, WorldPoint, WorldZoneId } from '@city/game-protocol';
 import {
   EntityLayer,
   buildZoneGreybox,
   disposeObject,
   zoneSkyColor,
 } from './world-scene';
-import { isEditableTarget, worldDirectionForKey } from './world-input';
+import { SelfMovement, type SelfAck } from './self-movement';
+import {
+  isEditableTarget,
+  movementKeyFor,
+  worldInputFromKeys,
+  type MovementKey,
+} from './world-input';
 
 export interface WorldScenePort {
   readonly entities: () => readonly WorldEntity[];
   readonly selfCharacterId: () => string | null;
   readonly zoneId: () => WorldZoneId | null;
-  move(direction: WorldDirection): void;
+  /** Letzte Server-Bestätigung der eigenen Position (Prediction-Abgleich). */
+  readonly selfAck: () => SelfAck | null;
+  /** Sendet eine Bewegungsabsicht; liefert die Sequenz oder `null`. */
+  sendInput(input: WorldPoint): number | null;
 }
 
 /** Schmale Renderer-Schnittstelle; Tests ersetzen WebGL durch einen Fake. */
@@ -43,9 +48,9 @@ const CAMERA_OFFSET = new THREE.Vector3(0, 18, 18);
 const CAMERA_LOOK_HEIGHT = 1;
 
 /**
- * 3D-Weltansicht: rendert die bestätigte Zone als Grey-Box und spiegelt
- * Entities aus dem World-State. Eingaben senden nur Commands; die Ansicht
- * entscheidet keine Bewegung.
+ * 3D-Weltansicht: rendert die bestätigte Zone als Grey-Box, sagt die eigene
+ * Figur mit der gemeinsamen Bewegungsfunktion voraus und interpoliert alle
+ * anderen Entities. Autorität über Positionen bleibt beim Server.
  */
 export class WorldView {
   readonly scene = new THREE.Scene();
@@ -56,6 +61,9 @@ export class WorldView {
   private readonly entities = new EntityLayer();
   private readonly resizeObserver: ResizeObserver | null;
   private readonly desiredTarget = new THREE.Vector3();
+  private readonly pressedKeys = new Set<MovementKey>();
+  private readonly selfMovement: SelfMovement;
+  private lastAck: SelfAck | null = null;
   private zoneGroup: THREE.Group | null = null;
   private zoneId: WorldZoneId | null = null;
   private lastFrameTime: number | null = null;
@@ -67,6 +75,9 @@ export class WorldView {
     private readonly world: WorldScenePort | undefined,
     createRenderer: WorldRendererFactory,
   ) {
+    this.selfMovement = new SelfMovement(
+      (input) => this.world?.sendInput(input) ?? null,
+    );
     this.renderer = createRenderer();
     this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio ?? 1, 2));
     this.renderer.domElement.style.display = 'block';
@@ -105,6 +116,8 @@ export class WorldView {
         : new ResizeObserver(() => this.resize());
     this.resizeObserver?.observe(parent);
     globalThis.addEventListener('keydown', this.handleKeydown);
+    globalThis.addEventListener('keyup', this.handleKeyup);
+    globalThis.addEventListener('blur', this.handleBlur);
     this.renderer.setAnimationLoop(this.renderFrame);
   }
 
@@ -117,14 +130,18 @@ export class WorldView {
     this.lastFrameTime = time;
 
     const zoneChanged = this.syncZone();
+    const selfId = this.world?.selfCharacterId() ?? null;
     if (this.world) {
-      this.entities.sync(
-        this.world.entities(),
-        this.world.selfCharacterId(),
+      const entities = this.world.entities();
+      this.entities.sync(entities, selfId, zoneChanged, time);
+      this.updateSelfMovement(
+        entities.find((entity) => entity.characterId === selfId) ?? null,
         zoneChanged,
+        deltaSeconds,
+        time,
       );
     }
-    this.entities.update(deltaSeconds);
+    this.entities.update(time, selfId, this.selfMovement.position);
     this.followSelf(zoneChanged);
     this.controls.update();
 
@@ -140,6 +157,8 @@ export class WorldView {
   destroy(): void {
     this.renderer.setAnimationLoop(null);
     globalThis.removeEventListener('keydown', this.handleKeydown);
+    globalThis.removeEventListener('keyup', this.handleKeyup);
+    globalThis.removeEventListener('blur', this.handleBlur);
     this.resizeObserver?.disconnect();
     this.controls.dispose();
     if (this.zoneGroup) {
@@ -174,6 +193,38 @@ export class WorldView {
     this.scene.background = new THREE.Color(zoneSkyColor(zoneId));
   }
 
+  /** Prediction der eigenen Figur: Input senden, simulieren, abgleichen. */
+  private updateSelfMovement(
+    self: WorldEntity | null,
+    zoneChanged: boolean,
+    deltaSeconds: number,
+    time: number,
+  ): void {
+    if (!self || !this.zoneId) {
+      this.selfMovement.clear();
+      return;
+    }
+    if (zoneChanged || !this.selfMovement.position) {
+      this.selfMovement.reset(self, this.zoneId);
+    }
+
+    const input =
+      this.pressedKeys.size > 0
+        ? worldInputFromKeys(
+            this.pressedKeys,
+            this.controls.getAzimuthalAngle(),
+          )
+        : { x: 0, y: 0 };
+    this.selfMovement.setInput(input, time);
+
+    const ack = this.world?.selfAck() ?? null;
+    if (ack && ack !== this.lastAck) {
+      this.lastAck = ack;
+      this.selfMovement.reconcile(ack);
+    }
+    this.selfMovement.advance(deltaSeconds);
+  }
+
   /** Kamera folgt der eigenen Figur, Drehung und Zoom bleiben erhalten. */
   private followSelf(snap: boolean): void {
     const selfId = this.world?.selfCharacterId() ?? null;
@@ -206,11 +257,21 @@ export class WorldView {
       return;
     }
 
-    const direction = worldDirectionForKey(event.key, event.repeat);
-    if (!direction || !this.world) return;
+    const key = movementKeyFor(event.key);
+    if (!key || !this.world) return;
 
     event.preventDefault();
-    this.world.move(direction);
+    this.pressedKeys.add(key);
+  };
+
+  private readonly handleKeyup = (event: KeyboardEvent): void => {
+    const key = movementKeyFor(event.key);
+    if (key) this.pressedKeys.delete(key);
+  };
+
+  /** Fokusverlust lässt keine „klebende“ Taste zurück. */
+  private readonly handleBlur = (): void => {
+    this.pressedKeys.clear();
   };
 }
 

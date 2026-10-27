@@ -4,6 +4,7 @@ import {
   MARKET_LANE_ZONE_ID,
   WORLD_COORDINATE_MAX,
   WORLD_COORDINATE_MIN,
+  WORLD_TICK_SECONDS,
   WORLD_ZONE_ID,
   worldInteractionObjectsIn,
   worldZoneColliders,
@@ -12,6 +13,7 @@ import {
 import type {
   WorldCollider,
   WorldEntity,
+  WorldPoint,
   WorldInteractionObject,
   WorldInteractionObjectId,
   WorldZoneId,
@@ -281,12 +283,25 @@ export function disposeObject(root: THREE.Object3D): void {
   });
 }
 
+/** Fremde Entities laufen so weit hinter dem Server her (Interpolation). */
+export const INTERPOLATION_DELAY_MS = 100;
+const TICK_MS = WORLD_TICK_SECONDS * 1000;
+/** Längste Anlauframpe nach einer Pause zwischen zwei Server-Ständen. */
+const MAX_RAMP_MS = 250;
+const MAX_SAMPLES = 20;
+
+interface PositionSample {
+  readonly t: number;
+  readonly x: number;
+  readonly z: number;
+}
+
 interface EntityAvatar {
   readonly group: THREE.Group;
   readonly body: THREE.Mesh<THREE.CapsuleGeometry, THREE.MeshStandardMaterial>;
   readonly ring: THREE.Mesh;
   readonly label: CSS2DObject;
-  readonly target: THREE.Vector3;
+  readonly samples: PositionSample[];
 }
 
 const AVATAR_COLORS = {
@@ -296,8 +311,9 @@ const AVATAR_COLORS = {
 } as const;
 
 /**
- * Spiegelt bestätigte Entities als Kapseln. Bewegt wird nur visuell in
- * Richtung der vom Server bestätigten Position; keine optimistische Mutation.
+ * Spiegelt Entities als Kapseln. Fremde Entities werden zwischen bestätigten
+ * Server-Ständen interpoliert; die eigene Figur setzt die Engine aus der
+ * Client-Prediction.
  */
 export class EntityLayer {
   readonly root = new THREE.Group();
@@ -321,6 +337,7 @@ export class EntityLayer {
     entities: readonly WorldEntity[],
     selfCharacterId: string | null,
     snap: boolean,
+    nowMs: number,
   ): void {
     const currentIds = new Set(entities.map((entity) => entity.characterId));
     for (const [characterId, avatar] of this.avatars) {
@@ -337,8 +354,12 @@ export class EntityLayer {
       const isNpc = entity.kind === 'npc';
       const isSelf = !isNpc && entity.characterId === selfCharacterId;
 
-      toScenePosition(entity.x, entity.y, 0, avatar.target);
-      if (!existing || snap) avatar.group.position.copy(avatar.target);
+      const target = toScenePosition(entity.x, entity.y);
+      if (!existing || snap) {
+        avatar.samples.length = 0;
+        avatar.group.position.copy(target);
+      }
+      pushSample(avatar.samples, nowMs, target.x, target.z);
 
       avatar.body.material.color.setHex(
         isNpc
@@ -354,11 +375,26 @@ export class EntityLayer {
     }
   }
 
-  /** Gleitet sichtbar zur bestätigten Position (Schritte wirken nicht ruckartig). */
-  update(deltaSeconds: number): void {
-    const blend = 1 - Math.exp(-deltaSeconds * 12);
-    for (const avatar of this.avatars.values()) {
-      avatar.group.position.lerp(avatar.target, blend);
+  /**
+   * Setzt die Darstellungspositionen: die eigene Figur aus der Prediction,
+   * alle anderen interpoliert `INTERPOLATION_DELAY_MS` hinter dem Server.
+   */
+  update(
+    nowMs: number,
+    selfCharacterId: string | null,
+    selfPosition: WorldPoint | null,
+  ): void {
+    for (const [characterId, avatar] of this.avatars) {
+      if (characterId === selfCharacterId && selfPosition) {
+        toScenePosition(
+          selfPosition.x,
+          selfPosition.y,
+          0,
+          avatar.group.position,
+        );
+        continue;
+      }
+      interpolate(avatar.samples, nowMs - INTERPOLATION_DELAY_MS, avatar.group);
     }
   }
 
@@ -396,9 +432,57 @@ export class EntityLayer {
     label.position.y = 2.1;
     group.add(label);
 
-    const avatar = { group, body, ring, label, target: new THREE.Vector3() };
+    const avatar = { group, body, ring, label, samples: [] };
     this.avatars.set(entity.characterId, avatar);
     this.root.add(group);
     return avatar;
+  }
+}
+
+function pushSample(
+  samples: PositionSample[],
+  nowMs: number,
+  x: number,
+  z: number,
+): void {
+  const last = samples.at(-1);
+  if (last && last.x === x && last.z === z) return;
+  // Nach einer Pause sanft anlaufen statt zum neuen Stand zu springen.
+  if (last && nowMs - last.t > 2 * TICK_MS) {
+    const ramp = Math.min(nowMs - last.t, MAX_RAMP_MS);
+    samples.push({ t: nowMs - ramp, x: last.x, z: last.z });
+  }
+  samples.push({ t: nowMs, x, z });
+  if (samples.length > MAX_SAMPLES)
+    samples.splice(0, samples.length - MAX_SAMPLES);
+}
+
+function interpolate(
+  samples: readonly PositionSample[],
+  renderTime: number,
+  object: THREE.Object3D,
+): void {
+  const first = samples[0];
+  const last = samples.at(-1);
+  if (!first || !last) return;
+  if (renderTime <= first.t) {
+    object.position.set(first.x, 0, first.z);
+    return;
+  }
+  if (renderTime >= last.t) {
+    object.position.set(last.x, 0, last.z);
+    return;
+  }
+  for (let index = samples.length - 1; index > 0; index -= 1) {
+    const from = samples[index - 1];
+    const to = samples[index];
+    if (!from || !to || renderTime < from.t) continue;
+    const fraction = (renderTime - from.t) / (to.t - from.t);
+    object.position.set(
+      from.x + (to.x - from.x) * fraction,
+      0,
+      from.z + (to.z - from.z) * fraction,
+    );
+    return;
   }
 }

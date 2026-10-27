@@ -8,8 +8,8 @@ import {
   isWorldPositionWalkable,
   worldZonePortal,
   worldZoneSpawn,
-  type WorldDirection,
   type WorldEntity,
+  type WorldInputPayload,
   type WorldInteractPayload,
   type WorldSnapshotPayload,
   type WorldTransitionPayload,
@@ -22,7 +22,7 @@ import { SimulationService } from '../simulation/simulation.service';
 import type { EnteredWorldContext } from './world.constants';
 import {
   WorldPositionService,
-  type WorldPositionChange,
+  type WorldTickResult,
 } from './world-position.service';
 import { WorldPresenceService } from './world-presence.service';
 import { WorldRepository } from './world.repository';
@@ -319,15 +319,14 @@ export class WorldService {
   }
 
   /**
-   * Reiht einen Schritt in den Zonen-Tick ein. Der Pfad ist datenbankfrei,
-   * außer ein Schritt beendet eine laufende Interaktion. `null` heißt: Der
-   * Schritt wurde verworfen, weil die Position inzwischen neu gesetzt wurde.
+   * Übernimmt eine stufenlose Bewegungsabsicht für den Zonen-Tick. Der Pfad
+   * ist datenbankfrei; angewendet wird sie im nächsten Tick.
    */
-  async move(
+  input(
     principal: AuthenticatedPrincipal,
     context: EnteredWorldContext,
-    direction: WorldDirection,
-  ): Promise<WorldPositionChange | null> {
+    payload: WorldInputPayload,
+  ): void {
     if (
       this.enteredByProfile.get(principal.playerProfileId) !==
       context.characterId
@@ -338,23 +337,11 @@ export class WorldService {
         'Enter the world with the currently selected character first',
       );
     }
+    this.positions.setInput(context.characterId, context.zoneId, payload);
+  }
 
-    const change = await this.positions.enqueue(
-      context.characterId,
-      context.zoneId,
-      direction,
-    );
-    if (!change) return null;
-    if (change.abortedInteraction) {
-      await this.simulation.abortInteraction(change.characterId);
-    }
-    this.logger.log({
-      event: 'world-moved',
-      characterId: change.characterId,
-      direction,
-      x: change.x,
-      y: change.y,
-    });
-    return change;
+  /** Meldet jeden Zonen-Tick an den Transport. */
+  onTick(listener: (result: WorldTickResult) => void): () => void {
+    return this.positions.onTick(listener);
   }
 }

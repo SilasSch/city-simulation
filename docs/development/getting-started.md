@@ -37,9 +37,10 @@ Erwartung:
    (ADR 0009). Weitere Characters können angelegt und ausgewählt werden.
 3. **Welt betreten:** Sobald Session, WebSocket und Auswahl bereit sind, sendet
    der Client `world-enter` für `central-square` (Default; `market-lane` existiert im Protokoll) und rendert den Snapshot.
-4. **Bewegen:** WASD oder Pfeiltasten senden Richtungs-Commands. Collider
-   blockieren Gebäude, Brunnen und Zonengrenzen serverseitig; der Marker bewegt
-   sich erst nach dem persistierten Serverevent.
+4. **Bewegen:** WASD oder Pfeiltasten steuern stufenlos relativ zur Kamera.
+   Der Client sagt die eigene Figur voraus; der Server wendet die Absicht im
+   20-Hz-Tick an, prüft Gebäude, Brunnen und Zonengrenzen und bestätigt per
+   `world-positions`.
 5. **Multiplayer:** Weitere verbundene Characters erscheinen und verschwinden
    über Join-/Leave-Events; mehrere Tabs desselben Characters zählen einmal.
 6. **Rasten:** Zur südlichen Bank bewegen und die Rast-Aktion wählen. Der Server

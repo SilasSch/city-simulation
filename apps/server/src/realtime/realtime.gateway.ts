@@ -17,9 +17,9 @@ import {
   WORLD_ENTITY_LEFT_EVENT_TYPE,
   WORLD_ENTITY_UPDATED_EVENT_TYPE,
   WORLD_INTERACT_COMMAND_TYPE,
+  WORLD_INPUT_COMMAND_TYPE,
   WORLD_INTERACT_RESULT_EVENT_TYPE,
-  WORLD_MOVE_COMMAND_TYPE,
-  WORLD_POSITION_CHANGED_EVENT_TYPE,
+  WORLD_POSITIONS_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
   WORLD_TRANSITION_COMMAND_TYPE,
   WORLD_ZONE_ID,
@@ -40,6 +40,7 @@ import {
   WorldPresenceService,
   type PresenceDeparture,
 } from '../world/world-presence.service';
+import type { WorldTickResult } from '../world/world-position.service';
 import { WorldService, type WorldEntry } from '../world/world.service';
 import { RealtimeMessageService } from './realtime-message.service';
 
@@ -71,6 +72,7 @@ export class RealtimeGateway
 {
   private readonly logger = new Logger(RealtimeGateway.name);
   private simulationTimer: ReturnType<typeof setInterval> | null = null;
+  private unsubscribeWorldTick: (() => void) | null = null;
 
   constructor(
     private readonly messages: RealtimeMessageService,
@@ -135,11 +137,16 @@ export class RealtimeGateway
       void this.broadcastSimulationTick(server);
     }, 1_000);
     this.simulationTimer.unref();
+    this.unsubscribeWorldTick = this.world.onTick((result) =>
+      this.broadcastWorldTick(server, result),
+    );
   }
 
   onApplicationShutdown(): void {
     if (this.simulationTimer) clearInterval(this.simulationTimer);
     this.simulationTimer = null;
+    this.unsubscribeWorldTick?.();
+    this.unsubscribeWorldTick = null;
   }
 
   handleConnection(client: Socket): void {
@@ -189,7 +196,12 @@ export class RealtimeGateway
       return;
     }
 
-    this.logger.log({
+    // Bewegungs-Inputs kommen mit bis zu 20 Hz: nur im Debug-Level loggen.
+    const logAccepted =
+      parsed.kind === WORLD_INPUT_COMMAND_TYPE
+        ? this.logger.debug.bind(this.logger)
+        : this.logger.log.bind(this.logger);
+    logAccepted({
       event: 'message-accepted',
       messageType: parsed.kind,
       requestId: parsed.envelope.requestId,
@@ -299,7 +311,7 @@ export class RealtimeGateway
           );
           return;
         }
-        case WORLD_MOVE_COMMAND_TYPE: {
+        case WORLD_INPUT_COMMAND_TYPE: {
           if (!socketData.world) {
             throw new ApplicationError(
               'WORLD_NOT_ENTERED',
@@ -307,37 +319,12 @@ export class RealtimeGateway
               'Enter the world before moving',
             );
           }
-          const change = await this.world.move(
+          // Bestätigt wird über den nächsten world-positions-Tick.
+          this.world.input(
             socketData.principal,
             socketData.world,
-            parsed.payload.direction,
+            parsed.payload,
           );
-          // Verworfen (Eintritt/Portal kam dazwischen): nichts zu senden.
-          if (!change) return;
-          const confirmed =
-            this.presence.entity(change.characterId) ??
-            (await this.simulation.entity(change.characterId));
-          const entity = {
-            ...confirmed,
-            x: change.x,
-            y: change.y,
-            interaction: change.abortedInteraction
-              ? null
-              : confirmed.interaction,
-          };
-          this.presence.update(entity);
-          // Zone des angewendeten Schritts, nicht des inzwischen evtl.
-          // gewechselten Socket-Kontexts.
-          client.nsp
-            .to(worldRoom(change.zoneId))
-            .emit(
-              PROTOCOL_CHANNEL,
-              createMessage(
-                WORLD_POSITION_CHANGED_EVENT_TYPE,
-                { entity },
-                parsed.envelope.requestId,
-              ),
-            );
           return;
         }
       }
@@ -373,6 +360,51 @@ export class RealtimeGateway
         'UNEXPECTED_ERROR',
         'Command execution failed',
         parsed.envelope.requestId,
+      );
+    }
+  }
+
+  /** 20-Hz-Zonen-Tick: Positionen und Input-Bestätigungen je Zone senden. */
+  private broadcastWorldTick(server: Server, result: WorldTickResult): void {
+    for (const [zoneId, entities] of result.zones) {
+      for (const { characterId, x, y } of entities) {
+        const current = this.presence.entity(characterId);
+        if (current) this.presence.update({ ...current, x, y });
+      }
+      server
+        .to(worldRoom(zoneId))
+        .emit(
+          PROTOCOL_CHANNEL,
+          createMessage(WORLD_POSITIONS_EVENT_TYPE, { zoneId, entities }),
+        );
+    }
+    for (const characterId of result.abortedInteractions) {
+      void this.abortInteractionForMovement(server, characterId);
+    }
+  }
+
+  /** Bewegung beendet eine laufende Interaktion (wie bisher ein Schritt). */
+  private async abortInteractionForMovement(
+    server: Server,
+    characterId: string,
+  ): Promise<void> {
+    try {
+      await this.simulation.abortInteraction(characterId);
+      const current = this.presence.entity(characterId);
+      const zoneId = this.presence.zoneOf(characterId);
+      if (!current || !zoneId) return;
+      const entity = { ...current, interaction: null };
+      this.presence.update(entity);
+      server
+        .to(worldRoom(zoneId))
+        .emit(
+          PROTOCOL_CHANNEL,
+          createMessage(WORLD_ENTITY_UPDATED_EVENT_TYPE, { entity }),
+        );
+    } catch (error) {
+      this.logger.error(
+        'Aborting an interaction after movement failed',
+        error instanceof Error ? error.stack : String(error),
       );
     }
   }

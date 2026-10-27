@@ -6,76 +6,52 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import {
-  WORLD_MOVE_STEP,
-  isWorldPositionWalkable,
-  type WorldDirection,
+  WORLD_TICK_SECONDS,
+  clampWorldInput,
+  stepWorldPosition,
+  type WorldInputPayload,
+  type WorldPositionsPayload,
   type WorldZoneId,
 } from '@city/game-protocol';
 import { ApplicationError } from '../shared/application-error';
 import { WorldRepository } from './world.repository';
 
 /** Zonen-Tick mit 20 Hz (ADR 0015). */
-export const WORLD_TICK_INTERVAL_MS = 50;
+export const WORLD_TICK_INTERVAL_MS = WORLD_TICK_SECONDS * 1000;
 /** Regelmäßige Persistenz veränderter Positionen (ADR 0015). */
 export const WORLD_POSITION_FLUSH_INTERVAL_MS = 5_000;
-/** Mehr wartende Schritte pro Character werden abgelehnt. */
-export const WORLD_MAX_QUEUED_MOVES = 4;
+/** Erlaubte Inputs pro Character und Sekunde (Client sendet höchstens 20). */
+export const WORLD_MAX_INPUTS_PER_SECOND = 40;
 
-/** Ergebnis eines im Tick angewendeten Schritts. */
-export interface WorldPositionChange {
-  characterId: string;
-  zoneId: WorldZoneId;
-  x: number;
-  y: number;
-  /** Der Schritt hat eine laufende Interaktion beendet. */
-  abortedInteraction: boolean;
-}
+const MOVEMENT_EPSILON = 1e-6;
 
-interface PendingMove {
-  direction: WorldDirection;
-  /** `null`: Schritt verworfen, weil die Position neu gesetzt wurde. */
-  resolve: (change: WorldPositionChange | null) => void;
-  reject: (error: ApplicationError) => void;
+/** Ergebnis eines Ticks: Broadcasts je Zone und beendete Interaktionen. */
+export interface WorldTickResult {
+  zones: Map<WorldZoneId, WorldPositionsPayload['entities']>;
+  abortedInteractions: string[];
 }
 
 interface LivePosition {
   zoneId: WorldZoneId;
   x: number;
   y: number;
+  inputX: number;
+  inputY: number;
+  /** Zuletzt angenommene Input-Sequenz. */
+  seq: number;
+  /** Zuletzt an die Zone gemeldete Sequenz. */
+  broadcastSeq: number;
   dirty: boolean;
   interacting: boolean;
-  queue: PendingMove[];
-}
-
-function nextPosition(
-  x: number,
-  y: number,
-  direction: WorldDirection,
-): { x: number; y: number } {
-  switch (direction) {
-    case 'N':
-      return { x, y: y - WORLD_MOVE_STEP };
-    case 'E':
-      return { x: x + WORLD_MOVE_STEP, y };
-    case 'S':
-      return { x, y: y + WORLD_MOVE_STEP };
-    case 'W':
-      return { x: x - WORLD_MOVE_STEP, y };
-  }
-}
-
-function notEntered(): ApplicationError {
-  return new ApplicationError(
-    'WORLD_NOT_ENTERED',
-    409,
-    'Enter the world before moving',
-  );
+  inputWindowStartedAt: number;
+  inputsInWindow: number;
 }
 
 /**
  * Prozesslokale, serverautoritäre Positionen aller eingetretenen Characters.
- * Bewegungs-Commands werden im 20-Hz-Tick angewendet; PostgreSQL erhält
- * Positionen nur noch periodisch und an fachlichen Grenzen (ADR 0015).
+ * Ein 20-Hz-Tick wendet die zuletzt gemeldete Bewegungsabsicht mit der
+ * gemeinsamen Bewegungsfunktion an; PostgreSQL erhält Positionen nur
+ * periodisch und an fachlichen Grenzen (ADR 0015).
  */
 @Injectable()
 export class WorldPositionService
@@ -83,13 +59,17 @@ export class WorldPositionService
 {
   private readonly logger = new Logger(WorldPositionService.name);
   private readonly positions = new Map<string, LivePosition>();
+  private readonly tickListeners = new Set<(result: WorldTickResult) => void>();
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly worlds: WorldRepository) {}
 
   onModuleInit(): void {
-    this.tickTimer = setInterval(() => this.tick(), WORLD_TICK_INTERVAL_MS);
+    this.tickTimer = setInterval(() => {
+      const result = this.tick();
+      for (const listener of this.tickListeners) listener(result);
+    }, WORLD_TICK_INTERVAL_MS);
     this.tickTimer.unref();
     this.flushTimer = setInterval(() => {
       void this.flushAll();
@@ -109,7 +89,13 @@ export class WorldPositionService
     await this.flushAll();
   }
 
-  /** Übernimmt eine bestätigte, persistierte Position in den Tick. */
+  /** Meldet jeden Tick an den Transport (Broadcast, Interaktionsabbruch). */
+  onTick(listener: (result: WorldTickResult) => void): () => void {
+    this.tickListeners.add(listener);
+    return () => this.tickListeners.delete(listener);
+  }
+
+  /** Übernimmt eine bestätigte, persistierte Position; die Figur steht still. */
   track(
     characterId: string,
     zoneId: WorldZoneId,
@@ -117,14 +103,18 @@ export class WorldPositionService
     y: number,
     interacting: boolean,
   ): void {
-    this.dropQueue(this.positions.get(characterId));
     this.positions.set(characterId, {
       zoneId,
       x,
       y,
+      inputX: 0,
+      inputY: 0,
+      seq: 0,
+      broadcastSeq: 0,
       dirty: false,
       interacting,
-      queue: [],
+      inputWindowStartedAt: 0,
+      inputsInWindow: 0,
     });
   }
 
@@ -141,61 +131,78 @@ export class WorldPositionService
   }
 
   /**
-   * Reiht einen Schritt ein; das Promise erfüllt sich im nächsten Tick. Wird
-   * die Position vorher neu gesetzt (Eintritt, Portal, Verlassen), erfüllt es
-   * sich mit `null` statt mit einem Fehler, damit der Socket seinen gerade
-   * neu aufgebauten Weltkontext nicht wieder abbaut.
+   * Übernimmt eine Bewegungsabsicht für die folgenden Ticks. Veraltete
+   * Sequenzen und Inputs für eine andere Zone (Portalwechsel im Flug) werden
+   * still ignoriert, damit der Socket seinen Weltkontext nicht verliert.
    */
-  enqueue(
+  setInput(
     characterId: string,
     zoneId: WorldZoneId,
-    direction: WorldDirection,
-  ): Promise<WorldPositionChange | null> {
+    input: WorldInputPayload,
+    now = Date.now(),
+  ): void {
     const live = this.positions.get(characterId);
-    if (!live || live.zoneId !== zoneId) {
-      return Promise.reject(notEntered());
-    }
-    if (live.queue.length >= WORLD_MAX_QUEUED_MOVES) {
-      return Promise.reject(
-        new ApplicationError('RATE_LIMITED', 429, 'Too many queued moves'),
+    if (!live) {
+      throw new ApplicationError(
+        'WORLD_NOT_ENTERED',
+        409,
+        'Enter the world before moving',
       );
     }
-    return new Promise((resolve, reject) => {
-      live.queue.push({ direction, resolve, reject });
-    });
+    if (live.zoneId !== zoneId || input.seq <= live.seq) return;
+
+    if (now - live.inputWindowStartedAt >= 1_000) {
+      live.inputWindowStartedAt = now;
+      live.inputsInWindow = 0;
+    }
+    live.inputsInWindow += 1;
+    if (live.inputsInWindow > WORLD_MAX_INPUTS_PER_SECOND) {
+      throw new ApplicationError('RATE_LIMITED', 429, 'Too many inputs');
+    }
+
+    const direction = clampWorldInput(input);
+    live.inputX = direction.x;
+    live.inputY = direction.y;
+    live.seq = input.seq;
   }
 
-  /** Wendet pro Character höchstens einen wartenden Schritt an. */
-  tick(): void {
-    for (const [characterId, live] of this.positions) {
-      const move = live.queue.shift();
-      if (!move) continue;
+  /** Ein fester Simulationsschritt für alle Characters. */
+  tick(): WorldTickResult {
+    const result: WorldTickResult = {
+      zones: new Map(),
+      abortedInteractions: [],
+    };
 
-      const next = nextPosition(live.x, live.y, move.direction);
-      if (!isWorldPositionWalkable(next.x, next.y, live.zoneId)) {
-        move.reject(
-          new ApplicationError(
-            'WORLD_MOVE_BLOCKED',
-            409,
-            'Movement is blocked by the zone map',
-          ),
+    for (const [characterId, live] of this.positions) {
+      let moved = false;
+      if (live.inputX !== 0 || live.inputY !== 0) {
+        const next = stepWorldPosition(
+          live,
+          { x: live.inputX, y: live.inputY },
+          WORLD_TICK_SECONDS,
+          live.zoneId,
         );
-        continue;
+        moved =
+          Math.abs(next.x - live.x) > MOVEMENT_EPSILON ||
+          Math.abs(next.y - live.y) > MOVEMENT_EPSILON;
+        if (moved) {
+          live.x = next.x;
+          live.y = next.y;
+          live.dirty = true;
+          if (live.interacting) {
+            live.interacting = false;
+            result.abortedInteractions.push(characterId);
+          }
+        }
       }
 
-      const abortedInteraction = live.interacting;
-      live.x = next.x;
-      live.y = next.y;
-      live.dirty = true;
-      live.interacting = false;
-      move.resolve({
-        characterId,
-        zoneId: live.zoneId,
-        x: live.x,
-        y: live.y,
-        abortedInteraction,
-      });
+      if (!moved && live.seq === live.broadcastSeq) continue;
+      live.broadcastSeq = live.seq;
+      const entries = result.zones.get(live.zoneId) ?? [];
+      entries.push({ characterId, x: live.x, y: live.y, seq: live.seq });
+      result.zones.set(live.zoneId, entries);
     }
+    return result;
   }
 
   /** Schreibt eine veränderte Position sofort nach PostgreSQL. */
@@ -228,13 +235,12 @@ export class WorldPositionService
 
   /** Persistiert und entfernt einen Character, der die Welt verlässt. */
   async untrack(characterId: string): Promise<void> {
+    const live = this.positions.get(characterId);
+    if (live) {
+      live.inputX = 0;
+      live.inputY = 0;
+    }
     await this.flush(characterId);
-    this.dropQueue(this.positions.get(characterId));
     this.positions.delete(characterId);
-  }
-
-  private dropQueue(live: LivePosition | undefined): void {
-    if (!live) return;
-    for (const move of live.queue.splice(0)) move.resolve(null);
   }
 }

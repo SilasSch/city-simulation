@@ -5,10 +5,9 @@ import {
   WORLD_ENTITY_JOINED_EVENT_TYPE,
   WORLD_ENTITY_LEFT_EVENT_TYPE,
   WORLD_COORDINATE_MAX,
-  WORLD_MOVE_STEP,
   WORLD_ENTER_COMMAND_TYPE,
-  WORLD_MOVE_COMMAND_TYPE,
-  WORLD_POSITION_CHANGED_EVENT_TYPE,
+  WORLD_INPUT_COMMAND_TYPE,
+  WORLD_POSITIONS_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
   WORLD_ZONE_ID,
   MARKET_LANE_ZONE_ID,
@@ -38,6 +37,12 @@ import {
   worldSnapshotPayloadSchema,
   worldZoneIdSchema,
 } from './protocol';
+import {
+  WORLD_ENTITY_RADIUS,
+  WORLD_MOVE_SPEED,
+  WORLD_TICK_SECONDS,
+  stepWorldPosition,
+} from './movement';
 import { parseIncomingMessage, parseServerMessage } from './parse';
 
 const CHARACTER_ID = '3f6f1c2a-9f3d-4f2a-9b3d-2f1a2b3c4d5e';
@@ -112,9 +117,69 @@ describe('protocol schemas', () => {
     expect(isWorldPositionWalkable(50, 50, MARKET_LANE_ZONE_ID)).toBe(true);
     // Mid-lane corridor spawn → west portal stays clear (#72); crate-west is north of y=50.
     expect(isWorldPositionWalkable(28, 33, MARKET_LANE_ZONE_ID)).toBe(false);
-    for (let x = MARKET_LANE_SPAWN_POSITION.x; x >= 5; x -= WORLD_MOVE_STEP) {
+    for (let x = MARKET_LANE_SPAWN_POSITION.x; x >= 5; x -= 2.5) {
       expect(isWorldPositionWalkable(x, 50, MARKET_LANE_ZONE_ID)).toBe(true);
     }
+  });
+
+  it('moves continuously at constant speed without diagonal boost', () => {
+    const start = { x: 50, y: 70 };
+    const east = stepWorldPosition(
+      start,
+      { x: 1, y: 0 },
+      WORLD_TICK_SECONDS,
+      WORLD_ZONE_ID,
+    );
+    expect(east.x).toBeCloseTo(50 + WORLD_MOVE_SPEED * WORLD_TICK_SECONDS);
+    expect(east.y).toBeCloseTo(70);
+
+    const diagonal = stepWorldPosition(start, { x: 1, y: 1 }, 1, WORLD_ZONE_ID);
+    expect(Math.hypot(diagonal.x - start.x, diagonal.y - start.y)).toBeCloseTo(
+      WORLD_MOVE_SPEED,
+    );
+    expect(stepWorldPosition(start, { x: 0, y: 0 }, 1, WORLD_ZONE_ID)).toEqual(
+      start,
+    );
+  });
+
+  it('slides along rectangle and circle colliders instead of sticking', () => {
+    // Diagonal gegen die Südkante von building-north-west (maxY 20).
+    let position = { x: 15, y: 22 };
+    for (let tick = 0; tick < 20; tick += 1) {
+      position = stepWorldPosition(
+        position,
+        { x: Math.SQRT1_2, y: -Math.SQRT1_2 },
+        WORLD_TICK_SECONDS,
+        WORLD_ZONE_ID,
+      );
+    }
+    expect(position.y).toBeCloseTo(20 + WORLD_ENTITY_RADIUS);
+    expect(position.x).toBeGreaterThan(15 + 3);
+
+    // Gegen den Brunnen (Radius 8): Kontakt bleibt außerhalb, Bewegung tangential.
+    position = { x: 47, y: 60 };
+    for (let tick = 0; tick < 40; tick += 1) {
+      position = stepWorldPosition(
+        position,
+        { x: 0, y: -1 },
+        WORLD_TICK_SECONDS,
+        WORLD_ZONE_ID,
+      );
+    }
+    expect(Math.hypot(position.x - 50, position.y - 50)).toBeGreaterThanOrEqual(
+      8 + WORLD_ENTITY_RADIUS - 1e-9,
+    );
+    expect(position.x).toBeLessThan(47);
+  });
+
+  it('keeps continuous movement inside the zone bounds', () => {
+    const position = stepWorldPosition(
+      { x: 50, y: 98.5 },
+      { x: 0, y: 1 },
+      1,
+      WORLD_ZONE_ID,
+    );
+    expect(position.y).toBe(WORLD_COORDINATE_MAX - WORLD_ENTITY_RADIUS);
   });
 
   it('validates complete world snapshots', () => {
@@ -323,16 +388,20 @@ describe('parseIncomingMessage', () => {
     }
   });
 
-  it('parses world-enter and world-move commands', () => {
+  it('parses world-enter and world-input commands', () => {
     const enter = parseIncomingMessage(
       createMessage(WORLD_ENTER_COMMAND_TYPE, { zoneId: WORLD_ZONE_ID }),
     );
-    const move = parseIncomingMessage(
-      createMessage(WORLD_MOVE_COMMAND_TYPE, { direction: 'W' }),
+    const input = parseIncomingMessage(
+      createMessage(WORLD_INPUT_COMMAND_TYPE, {
+        seq: 3,
+        x: Math.SQRT1_2,
+        y: -Math.SQRT1_2,
+      }),
     );
 
     expect(enter.ok && enter.kind).toBe(WORLD_ENTER_COMMAND_TYPE);
-    expect(move.ok && move.kind).toBe(WORLD_MOVE_COMMAND_TYPE);
+    expect(input.ok && input.kind).toBe(WORLD_INPUT_COMMAND_TYPE);
   });
 
   it('parses world-transition commands', () => {
@@ -375,18 +444,22 @@ describe('parseIncomingMessage', () => {
     expect(result.ok && result.kind).toBe(WORLD_INTERACT_RESULT_EVENT_TYPE);
   });
 
-  it('rejects invalid zones and movement directions', () => {
+  it('rejects invalid zones and movement inputs', () => {
     const enter = parseIncomingMessage(
       createMessage(WORLD_ENTER_COMMAND_TYPE, { zoneId: 'other-zone' }),
     );
-    const move = parseIncomingMessage(
-      createMessage(WORLD_MOVE_COMMAND_TYPE, { direction: 'up' }),
+    const tooLong = parseIncomingMessage(
+      createMessage(WORLD_INPUT_COMMAND_TYPE, { seq: 1, x: 1, y: 1 }),
+    );
+    const legacyMove = parseIncomingMessage(
+      createMessage('world-move', { direction: 'E' }),
     );
 
     expect(enter.ok).toBe(false);
-    expect(move.ok).toBe(false);
+    expect(tooLong.ok).toBe(false);
+    expect(legacyMove.ok).toBe(false);
     if (!enter.ok) expect(enter.code).toBe('VALIDATION_ERROR');
-    if (!move.ok) expect(move.code).toBe('VALIDATION_ERROR');
+    if (!tooLong.ok) expect(tooLong.code).toBe('VALIDATION_ERROR');
   });
 
   it('rejects unsupported protocol versions with the requestId attached', () => {
@@ -441,16 +514,15 @@ describe('parseServerMessage', () => {
         entities: [WORLD_ENTITY],
       }),
     );
-    const position = parseServerMessage(
-      createMessage(WORLD_POSITION_CHANGED_EVENT_TYPE, {
-        entity: { ...WORLD_ENTITY, x: 55 },
+    const positions = parseServerMessage(
+      createMessage(WORLD_POSITIONS_EVENT_TYPE, {
+        zoneId: WORLD_ZONE_ID,
+        entities: [{ characterId: CHARACTER_ID, x: 55.3, y: 50, seq: 7 }],
       }),
     );
 
     expect(snapshot.ok && snapshot.kind).toBe(WORLD_SNAPSHOT_EVENT_TYPE);
-    expect(position.ok && position.kind).toBe(
-      WORLD_POSITION_CHANGED_EVENT_TYPE,
-    );
+    expect(positions.ok && positions.kind).toBe(WORLD_POSITIONS_EVENT_TYPE);
   });
 
   it('parses presence join and leave events', () => {

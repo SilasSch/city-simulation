@@ -15,6 +15,7 @@ import { CharacterService } from '../character/character.service';
 import { PrismaService } from '../persistence/prisma.service';
 import { ApplicationError } from '../shared/application-error';
 import { cleanDatabase } from '../../test/test-database';
+import { WorldPositionService } from '../world/world-position.service';
 import { WorldPresenceService } from '../world/world-presence.service';
 import { WorldService } from '../world/world.service';
 import { SimulationService } from './simulation.service';
@@ -27,6 +28,7 @@ describe('first simulation loop (integration)', () => {
   let simulation: SimulationService;
   let world: WorldService;
   let presence: WorldPresenceService;
+  let positions: WorldPositionService;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -40,6 +42,7 @@ describe('first simulation loop (integration)', () => {
     simulation = moduleRef.get(SimulationService);
     world = moduleRef.get(WorldService);
     presence = moduleRef.get(WorldPresenceService);
+    positions = moduleRef.get(WorldPositionService);
   });
 
   beforeEach(async () => cleanDatabase(prisma));
@@ -66,8 +69,10 @@ describe('first simulation loop (integration)', () => {
       code: 'INTERACTION_OUT_OF_RANGE',
     } satisfies Partial<ApplicationError>);
 
-    await world.move(principal, entry.context, 'E');
-    await world.move(principal, entry.context, 'E');
+    // 34 Ticks à 0,3 Einheiten: von x = 50 in Reichweite der Bank (x = 62).
+    world.input(principal, entry.context, { seq: 1, x: 1, y: 0 });
+    for (let tick = 0; tick < 34; tick += 1) positions.tick();
+    world.input(principal, entry.context, { seq: 2, x: 0, y: 0 });
     const simulatedNow = new Date(simulation.clockSnapshot().simulatedTime);
     await prisma.characterWorldState.update({
       where: { characterId: entry.context.characterId },
@@ -99,17 +104,12 @@ describe('first simulation loop (integration)', () => {
     expect(completed?.energy).toBeLessThanOrEqual(70);
 
     await world.interact(principal, entry.context, { objectId: 'bench-south' });
-    const moved = await world.move(principal, entry.context, 'W');
-    expect(moved?.abortedInteraction).toBe(true);
-    expect(
-      await prisma.characterWorldState.findUniqueOrThrow({
-        where: { characterId: entry.context.characterId },
-      }),
-    ).toMatchObject({
-      interactionObjectId: null,
-      interactionStartedAt: null,
-      interactionEndsAt: null,
-    });
+    // Bewegung meldet den Abbruch; der Gateway schreibt ihn und broadcastet.
+    world.input(principal, entry.context, { seq: 3, x: -1, y: 0 });
+    expect(positions.tick().abortedInteractions).toEqual([
+      entry.context.characterId,
+    ]);
+    expect(positions.tick().abortedInteractions).toEqual([]);
   });
 
   it('pays money when a job interaction completes', async () => {

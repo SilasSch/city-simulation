@@ -7,7 +7,7 @@ import {
   type WorldRenderer,
   type WorldScenePort,
 } from './game-engine.service';
-import { worldDirectionForKey } from './world-input';
+import { movementKeyFor, worldInputFromKeys } from './world-input';
 
 /**
  * jsdom hat kein WebGL. Der Fake ersetzt nur den Renderer; Szene, Kamera,
@@ -66,19 +66,34 @@ function worldPort(overrides: Partial<WorldScenePort> = {}): WorldScenePort {
     entities: () => [],
     selfCharacterId: () => null,
     zoneId: () => 'central-square',
-    move: vi.fn(),
+    selfAck: () => null,
+    sendInput: vi.fn(() => null),
     ...overrides,
   };
 }
 
 describe('GameEngineService', () => {
-  it('maps WASD and arrow keys to bounded movement commands', () => {
-    expect(worldDirectionForKey('w')).toBe('N');
-    expect(worldDirectionForKey('ArrowRight')).toBe('E');
-    expect(worldDirectionForKey('s')).toBe('S');
-    expect(worldDirectionForKey('ArrowLeft')).toBe('W');
-    expect(worldDirectionForKey('x')).toBeNull();
-    expect(worldDirectionForKey('w', true)).toBeNull();
+  it('maps WASD and arrow keys to camera-relative world input', () => {
+    expect(movementKeyFor('w')).toBe('forward');
+    expect(movementKeyFor('ArrowRight')).toBe('right');
+    expect(movementKeyFor('s')).toBe('back');
+    expect(movementKeyFor('ArrowLeft')).toBe('left');
+    expect(movementKeyFor('x')).toBeNull();
+
+    const north = worldInputFromKeys(new Set(['forward']), 0);
+    expect(north.x).toBeCloseTo(0);
+    expect(north.y).toBeCloseTo(-1);
+    // Kamera im Osten (Azimut 90°): vorwärts zeigt nach Westen.
+    const west = worldInputFromKeys(new Set(['forward']), Math.PI / 2);
+    expect(west.x).toBeCloseTo(-1);
+    expect(west.y).toBeCloseTo(0);
+    // Diagonal nicht schneller als geradeaus.
+    const diagonal = worldInputFromKeys(new Set(['forward', 'right']), 0);
+    expect(Math.hypot(diagonal.x, diagonal.y)).toBeCloseTo(1);
+    expect(worldInputFromKeys(new Set(['forward', 'back']), 0)).toEqual({
+      x: 0,
+      y: 0,
+    });
   });
 
   it('boots the 3D view after the first frame and destroys it cleanly', () => {
@@ -180,17 +195,36 @@ describe('GameEngineService', () => {
     view.destroy();
   });
 
-  it('sends movement commands from the keyboard but not from form fields', () => {
-    const port = worldPort();
+  it('predicts camera-relative keyboard movement and ignores form fields', () => {
+    const self = entity({});
+    let seq = 0;
+    const sendInput = vi.fn<WorldScenePort['sendInput']>(() => (seq += 1));
     const view = new GameEngineService().createGame(
       document.createElement('div'),
       () => undefined,
-      port,
+      worldPort({
+        entities: () => [self],
+        selfCharacterId: () => self.characterId,
+        sendInput,
+      }),
       fakeRenderer,
     );
+    view.renderFrame(0);
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w' }));
-    expect(port.move).toHaveBeenCalledWith('N');
+    for (let frame = 1; frame <= 10; frame += 1) view.renderFrame(frame * 100);
+    // Standardkamera blickt nach Norden: „vorwärts“ ist logisch -y.
+    const forward = sendInput.mock.calls[0]?.[0];
+    expect(forward?.x).toBeCloseTo(0);
+    expect(forward?.y).toBeCloseTo(-1);
+    expect(sendInput).toHaveBeenCalledTimes(1);
+    // Vorhersage ohne Serverbestätigung: 1 s ≈ 6 Einheiten = 3 m nach Norden.
+    const avatar = view.scene.getObjectByName(`entity:${self.characterId}`);
+    expect(avatar?.position.z).toBeCloseTo(10 - 3, 1);
+
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'w' }));
+    view.renderFrame(1_100);
+    expect(sendInput).toHaveBeenLastCalledWith({ x: 0, y: 0 });
 
     const input = document.createElement('input');
     document.body.appendChild(input);
@@ -198,11 +232,12 @@ describe('GameEngineService', () => {
     input.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'd', bubbles: true }),
     );
-    expect(port.move).toHaveBeenCalledTimes(1);
+    view.renderFrame(1_200);
+    expect(sendInput).toHaveBeenCalledTimes(2);
     input.remove();
 
     view.destroy();
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 's' }));
-    expect(port.move).toHaveBeenCalledTimes(1);
+    expect(sendInput).toHaveBeenCalledTimes(2);
   });
 });

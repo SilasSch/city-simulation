@@ -12,8 +12,8 @@ import {
   WORLD_ENTITY_UPDATED_EVENT_TYPE,
   WORLD_INTERACT_COMMAND_TYPE,
   WORLD_INTERACT_RESULT_EVENT_TYPE,
-  WORLD_MOVE_COMMAND_TYPE,
-  WORLD_POSITION_CHANGED_EVENT_TYPE,
+  WORLD_INPUT_COMMAND_TYPE,
+  WORLD_POSITIONS_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
   WORLD_TRANSITION_COMMAND_TYPE,
   connectPayloadSchema,
@@ -22,13 +22,13 @@ import {
   protocolEnvelopeSchema,
   worldEnterPayloadSchema,
   worldInteractPayloadSchema,
-  worldMovePayloadSchema,
+  worldInputPayloadSchema,
   worldTransitionPayloadSchema,
 } from '@city/game-protocol';
 import type {
   ParsedServerMessage,
   ProtocolErrorPayload,
-  WorldDirection,
+  WorldInputPayload,
   WorldInteractPayload,
   WorldZoneId,
   WorldZonePortalId,
@@ -120,10 +120,10 @@ export class RealtimeService implements OnDestroy {
     this.emitValidated(WORLD_INTERACT_COMMAND_TYPE, payload);
   }
 
-  sendWorldMove(direction: WorldDirection): void {
+  sendWorldInput(input: WorldInputPayload): void {
     if (this.connectionState() !== 'connected') return;
-    const payload = worldMovePayloadSchema.parse({ direction });
-    this.emitValidated(WORLD_MOVE_COMMAND_TYPE, payload);
+    const payload = worldInputPayloadSchema.parse(input);
+    this.emitValidated(WORLD_INPUT_COMMAND_TYPE, payload);
   }
 
   sendWorldTransition(portalId: WorldZonePortalId): void {
@@ -147,7 +147,10 @@ export class RealtimeService implements OnDestroy {
       return;
     }
 
-    this.lastMessageType.set(parsed.kind);
+    // Der 20-Hz-Positions-Tick würde die Statusanzeige ständig neu zeichnen.
+    if (parsed.kind !== WORLD_POSITIONS_EVENT_TYPE) {
+      this.lastMessageType.set(parsed.kind);
+    }
 
     switch (parsed.kind) {
       case CONNECTION_ESTABLISHED_EVENT_TYPE:
@@ -166,7 +169,7 @@ export class RealtimeService implements OnDestroy {
         this.serverMessageSubject.next(parsed);
         return;
       case WORLD_SNAPSHOT_EVENT_TYPE:
-      case WORLD_POSITION_CHANGED_EVENT_TYPE:
+      case WORLD_POSITIONS_EVENT_TYPE:
       case WORLD_ENTITY_JOINED_EVENT_TYPE:
       case WORLD_ENTITY_LEFT_EVENT_TYPE:
       case WORLD_ENTITY_UPDATED_EVENT_TYPE:

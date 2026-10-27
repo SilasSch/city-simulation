@@ -15,8 +15,8 @@ import {
   PROTOCOL_ERROR_EVENT_TYPE,
   WORLD_ENTER_COMMAND_TYPE,
   WORLD_ENTITY_LEFT_EVENT_TYPE,
-  WORLD_MOVE_COMMAND_TYPE,
-  WORLD_POSITION_CHANGED_EVENT_TYPE,
+  WORLD_INPUT_COMMAND_TYPE,
+  WORLD_POSITIONS_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
   WORLD_TRANSITION_COMMAND_TYPE,
   MARKET_LANE_SPAWN_POSITION,
@@ -27,7 +27,7 @@ import {
   type ProtocolMessage,
   createMessage,
   protocolErrorPayloadSchema,
-  worldPositionChangedPayloadSchema,
+  worldPositionsPayloadSchema,
   worldSnapshotPayloadSchema,
 } from '@city/game-protocol';
 import { AppModule } from '../app.module';
@@ -162,7 +162,7 @@ describe('World via RealtimeGateway (integration)', () => {
     const responsePromise = nextMessage(socket);
     socket.emit(
       PROTOCOL_CHANNEL,
-      createMessage(WORLD_MOVE_COMMAND_TYPE, { direction: 'E' }),
+      createMessage(WORLD_INPUT_COMMAND_TYPE, { seq: 1, x: 1, y: 0 }),
     );
     const response = await responsePromise;
 
@@ -204,31 +204,42 @@ describe('World via RealtimeGateway (integration)', () => {
     );
     await enter(second.socket);
 
-    const firstEvent = nextMessage(
-      first.socket,
-      WORLD_POSITION_CHANGED_EVENT_TYPE,
-    );
-    const secondEvent = nextMessage(
-      second.socket,
-      WORLD_POSITION_CHANGED_EVENT_TYPE,
-    );
+    const firstEvent = nextMessage(first.socket, WORLD_POSITIONS_EVENT_TYPE);
+    const secondEvent = nextMessage(second.socket, WORLD_POSITIONS_EVENT_TYPE);
     first.socket.emit(
       PROTOCOL_CHANNEL,
-      createMessage(WORLD_MOVE_COMMAND_TYPE, { direction: 'E' }),
+      createMessage(WORLD_INPUT_COMMAND_TYPE, { seq: 1, x: 1, y: 0 }),
     );
 
     for (const response of await Promise.all([firstEvent, secondEvent])) {
-      expect(response.type).toBe(WORLD_POSITION_CHANGED_EVENT_TYPE);
-      expect(
-        worldPositionChangedPayloadSchema.parse(response.payload).entity,
-      ).toMatchObject({
-        characterId: player.characterId,
-        name: 'Ayla',
-        x: 55,
-        y: 70,
-        interaction: null,
-      });
+      const payload = worldPositionsPayloadSchema.parse(response.payload);
+      expect(payload.zoneId).toBe(WORLD_ZONE_ID);
+      const self = payload.entities.find(
+        (entity) => entity.characterId === player.characterId,
+      );
+      expect(self?.seq).toBe(1);
+      expect(self?.x).toBeGreaterThan(50);
+      expect(self?.y).toBe(70);
     }
+
+    // Stopp bestätigen lassen; die Endposition überlebt den Reconnect.
+    const stopped = new Promise<{ x: number; y: number }>((resolve) => {
+      const listener = (message: ProtocolMessage<unknown>): void => {
+        if (message.type !== WORLD_POSITIONS_EVENT_TYPE) return;
+        const self = worldPositionsPayloadSchema
+          .parse(message.payload)
+          .entities.find((entity) => entity.characterId === player.characterId);
+        if (self?.seq !== 2) return;
+        first.socket.off(PROTOCOL_CHANNEL, listener);
+        resolve(self);
+      };
+      first.socket.on(PROTOCOL_CHANNEL, listener);
+    });
+    first.socket.emit(
+      PROTOCOL_CHANNEL,
+      createMessage(WORLD_INPUT_COMMAND_TYPE, { seq: 2, x: 0, y: 0 }),
+    );
+    const finalPosition = await stopped;
 
     first.socket.disconnect();
     const reconnected = connect(player.cookie);
@@ -236,11 +247,11 @@ describe('World via RealtimeGateway (integration)', () => {
     const restored = worldSnapshotPayloadSchema.parse(
       (await enter(reconnected.socket)).payload,
     );
-    expect(
-      restored.entities.find(
-        (entity) => entity.characterId === player.characterId,
-      ),
-    ).toMatchObject({ x: 55, y: 70 });
+    const restoredSelf = restored.entities.find(
+      (entity) => entity.characterId === player.characterId,
+    );
+    expect(restoredSelf?.x).toBeCloseTo(finalPosition.x);
+    expect(restoredSelf?.y).toBe(70);
   });
 
   it('disconnects every socket immediately when its session is revoked', async () => {
@@ -302,10 +313,10 @@ describe('World via RealtimeGateway (integration)', () => {
     expect(resolvePrincipal).toHaveBeenCalledTimes(1);
 
     await enter(socket);
-    const moved = nextMessage(socket, WORLD_POSITION_CHANGED_EVENT_TYPE);
+    const moved = nextMessage(socket, WORLD_POSITIONS_EVENT_TYPE);
     socket.emit(
       PROTOCOL_CHANNEL,
-      createMessage(WORLD_MOVE_COMMAND_TYPE, { direction: 'E' }),
+      createMessage(WORLD_INPUT_COMMAND_TYPE, { seq: 1, x: 1, y: 0 }),
     );
     await moved;
 

@@ -5,7 +5,7 @@ import type { HealthResponseDto } from '@city/shared-types';
  * Aktuelle Protokollversion. Zentral definiert — Client und Server
  * MÜSSEN dieselbe Version verwenden. Bei Erhöhung ist ADR 0006 zu beachten.
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /**
  * Stabile maschinenlesbare Fehlercodes für ProtocolErrorEvent.
@@ -73,7 +73,6 @@ export const WORLD_ZONE_ID = WORLD_ZONE_IDS[0];
 export const MARKET_LANE_ZONE_ID = WORLD_ZONE_IDS[1];
 export const WORLD_COORDINATE_MIN = 0;
 export const WORLD_COORDINATE_MAX = 100;
-export const WORLD_MOVE_STEP = 5;
 
 export const WORLD_SPAWN_POSITION = { x: 50, y: 70 } as const;
 export const MARKET_LANE_SPAWN_POSITION = { x: 50, y: 50 } as const;
@@ -394,8 +393,8 @@ export function isWorldPositionWalkable(
   zoneId: WorldZoneId = WORLD_ZONE_ID,
 ): boolean {
   if (
-    !Number.isInteger(x) ||
-    !Number.isInteger(y) ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
     x < WORLD_COORDINATE_MIN ||
     x > WORLD_COORDINATE_MAX ||
     y < WORLD_COORDINATE_MIN ||
@@ -406,9 +405,6 @@ export function isWorldPositionWalkable(
 
   return isClearOfColliders(x, y, worldZoneColliders(zoneId));
 }
-
-export const worldDirectionSchema = z.enum(['N', 'E', 'S', 'W']);
-export type WorldDirection = z.infer<typeof worldDirectionSchema>;
 
 export const worldInteractionStateSchema = z.object({
   objectId: worldInteractionObjectIdSchema,
@@ -431,8 +427,8 @@ export const worldEntitySchema = z.object({
   /** Player characters default when omitted (additive protocol field). */
   kind: worldEntityKindSchema.default('character'),
   name: z.string().min(1).max(32),
-  x: z.number().int().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
-  y: z.number().int().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
+  x: z.number().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
+  y: z.number().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
   energy: z.number().min(0).max(100),
   money: z.number().int().min(CHARACTER_MONEY_MIN),
   interaction: worldInteractionStateSchema.nullable(),
@@ -526,11 +522,22 @@ export const worldEnterPayloadSchema = z.object({
 });
 export type WorldEnterPayload = z.infer<typeof worldEnterPayloadSchema>;
 
-export const WORLD_MOVE_COMMAND_TYPE = 'world-move';
-export const worldMovePayloadSchema = z.object({
-  direction: worldDirectionSchema,
-});
-export type WorldMovePayload = z.infer<typeof worldMovePayloadSchema>;
+/**
+ * Stufenlose Bewegungsabsicht (Protokoll v4, ADR 0015): Richtungsvektor in
+ * logischen Bodenkoordinaten mit Länge ≤ 1 und monoton steigender
+ * Sequenznummer. Der Server wendet die letzte Absicht in jedem Tick an.
+ */
+export const WORLD_INPUT_COMMAND_TYPE = 'world-input';
+export const worldInputPayloadSchema = z
+  .object({
+    seq: z.number().int().nonnegative(),
+    x: z.number().min(-1).max(1),
+    y: z.number().min(-1).max(1),
+  })
+  .refine((input) => Math.hypot(input.x, input.y) <= 1 + 1e-6, {
+    message: 'Input vector must not be longer than 1',
+  });
+export type WorldInputPayload = z.infer<typeof worldInputPayloadSchema>;
 
 /** Shared interact reach for Central Square NPCs (same ballpark as POIs). */
 export const NPC_INTERACTION_RANGE = 10;
@@ -611,13 +618,23 @@ export const worldSnapshotPayloadSchema = z.object({
 });
 export type WorldSnapshotPayload = z.infer<typeof worldSnapshotPayloadSchema>;
 
-export const WORLD_POSITION_CHANGED_EVENT_TYPE = 'world-position-changed';
-export const worldPositionChangedPayloadSchema = z.object({
-  entity: worldEntitySchema,
+/**
+ * Tick-Broadcast einer Zone (20 Hz): veränderte Positionen und die zuletzt
+ * angewendete Input-Sequenz je Character für den Prediction-Abgleich.
+ */
+export const WORLD_POSITIONS_EVENT_TYPE = 'world-positions';
+export const worldPositionsPayloadSchema = z.object({
+  zoneId: worldZoneIdSchema,
+  entities: z.array(
+    z.object({
+      characterId: z.string().uuid(),
+      x: z.number().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
+      y: z.number().min(WORLD_COORDINATE_MIN).max(WORLD_COORDINATE_MAX),
+      seq: z.number().int().nonnegative(),
+    }),
+  ),
 });
-export type WorldPositionChangedPayload = z.infer<
-  typeof worldPositionChangedPayloadSchema
->;
+export type WorldPositionsPayload = z.infer<typeof worldPositionsPayloadSchema>;
 
 export const WORLD_ENTITY_JOINED_EVENT_TYPE = 'world-entity-joined';
 export const worldEntityJoinedPayloadSchema = z.object({
