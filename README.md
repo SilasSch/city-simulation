@@ -110,8 +110,9 @@ libs/
   game-protocol/     # Zod-Schemas für REST- und WS-Verträge
 docs/
   architecture/      # Architekturüberblick
-  decisions/         # ADRs 0001–0013
+  decisions/         # ADRs 0001–0015
   development/       # Getting Started
+  plans/             # Abgestimmte Specs für kommende Milestones
 ```
 
 ## API-Überblick
@@ -178,3 +179,8 @@ Energie und einen ersten Bank-Interaktionsloop. Noch nicht enthalten sind
 Wirtschaft, NPCs, autonome Agenten oder Microservices. Der Client nutzt keine
 optimistische Mutation: Phaser zeigt ausschließlich vom Server bestätigten
 Zustand. Details stehen im Architekturüberblick und in ADR 0010–0013.
+
+Ab v0.10 wird der Phaser-Client durch einen Three.js-3D-Client mit
+serverautoritativem 20-Hz-Tick und Client-Prediction ersetzt (ADR 0014 und
+0015, Spec in [`docs/plans/3d-v1.0.md`](docs/plans/3d-v1.0.md)). Bis zur
+Umsetzung beschreibt dieses README den aktuellen 2D-Stand.
