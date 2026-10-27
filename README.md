@@ -180,7 +180,8 @@ Wirtschaft, NPCs, autonome Agenten oder Microservices. Der Client nutzt keine
 optimistische Mutation: Three.js zeigt ausschließlich vom Server bestätigten
 Zustand. Details stehen im Architekturüberblick und in ADR 0010–0013.
 
-Ab v0.10 wird der Phaser-Client durch einen Three.js-3D-Client mit
-serverautoritativem 20-Hz-Tick und Client-Prediction ersetzt (ADR 0014 und
-0015, Spec in [`docs/plans/3d-v1.0.md`](docs/plans/3d-v1.0.md)). Bis zur
-Umsetzung beschreibt dieses README den aktuellen 2D-Stand.
+Der Umbau auf 3D läuft (v0.10–v1.0, Spec in
+[`docs/plans/3d-v1.0.md`](docs/plans/3d-v1.0.md)): Three.js rendert die Zonen
+bereits als Grey-Box (ADR 0014), und Positionen leben in einem 20-Hz-Zonen-Tick
+mit periodischer Persistenz (ADR 0015). Bewegt wird noch schrittweise über
+`world-move`; stufenlose Bewegung mit Client-Prediction folgt.

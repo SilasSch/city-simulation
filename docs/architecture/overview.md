@@ -238,11 +238,10 @@ Fehlercodes (stabil, maschinenlesbar; REST und WS konsistent):
 Angular besitzt Shell und reaktiven Zustand; Three.js rendert die Weltprojektion.
 Weder Komponenten noch Scene treffen fachliche Bewegungsentscheidungen.
 
-> **Geplanter Umbau (v0.10–v1.0):** Phaser wird durch Three.js ersetzt
-> (ADR 0014), und die Schritt-Bewegung durch einen In-Memory-Zonen-Tick mit
-> Client-Prediction (ADR 0015). Dieser Abschnitt beschreibt bis zur Umsetzung
-> den aktuellen Stand. Die Spec steht in
-> [`docs/plans/3d-v1.0.md`](../plans/3d-v1.0.md).
+> **Umbau v0.10–v1.0:** Three.js ersetzt Phaser bereits (ADR 0014), und
+> Positionen laufen im In-Memory-Zonen-Tick (ADR 0015). Noch offen ist die
+> stufenlose Bewegung mit Client-Prediction, die `world-move` (N/E/S/W)
+> ablöst. Die Spec steht in [`docs/plans/3d-v1.0.md`](../plans/3d-v1.0.md).
 
 ## Modulgrenzen
 
