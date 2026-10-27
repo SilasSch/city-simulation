@@ -87,6 +87,11 @@ export class WorldPresenceService {
     if (presence) presence.entity = entity;
   }
 
+  /** Last confirmed entity of a present character, or null if offline. */
+  entity(characterId: string): WorldEntity | null {
+    return this.presences.get(characterId)?.entity ?? null;
+  }
+
   /** Zone of a present character, or null if offline. */
   zoneOf(characterId: string): WorldZoneId | null {
     return this.presences.get(characterId)?.zoneId ?? null;

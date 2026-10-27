@@ -15,6 +15,7 @@ import { CharacterService } from '../character/character.service';
 import { PrismaService } from '../persistence/prisma.service';
 import { ApplicationError } from '../shared/application-error';
 import { cleanDatabase } from '../../test/test-database';
+import { WorldPositionService } from './world-position.service';
 import { WorldService } from './world.service';
 
 describe('WorldService (integration)', () => {
@@ -23,6 +24,7 @@ describe('WorldService (integration)', () => {
   let characters: CharacterService;
   let prisma: PrismaService;
   let world: WorldService;
+  let positions: WorldPositionService;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -34,6 +36,7 @@ describe('WorldService (integration)', () => {
     characters = moduleRef.get(CharacterService);
     prisma = moduleRef.get(PrismaService);
     world = moduleRef.get(WorldService);
+    positions = moduleRef.get(WorldPositionService);
   });
 
   beforeEach(async () => cleanDatabase(prisma));
@@ -87,6 +90,7 @@ describe('WorldService (integration)', () => {
     );
 
     const moved = await world.move(principal, firstEntry.context, 'E');
+    if (!moved) throw new Error('expected an applied move');
     const secondEntry = await world.enter(principal, WORLD_ZONE_ID);
     expect(
       secondEntry.snapshot.entities.find(
@@ -100,21 +104,32 @@ describe('WorldService (integration)', () => {
     expect(stored.revision).toBe(1);
   });
 
-  it('serializes concurrent valid moves', async () => {
+  it('applies concurrent moves in the tick and persists them only on flush', async () => {
     const principal = await playerWithCharacter('movement@example.com');
     const entry = await world.enter(principal, WORLD_ZONE_ID);
 
-    await Promise.all([
+    const moves = await Promise.all([
       world.move(principal, entry.context, 'E'),
       world.move(principal, entry.context, 'E'),
     ]);
+    expect(moves.map((move) => move?.x)).toEqual([55, 60]);
 
+    // Bewegung schreibt nicht pro Schritt in PostgreSQL (ADR 0015).
+    const beforeFlush = await prisma.characterWorldState.findUniqueOrThrow({
+      where: { characterId: entry.context.characterId },
+    });
+    expect(beforeFlush).toMatchObject({
+      x: WORLD_SPAWN_POSITION.x,
+      revision: 0,
+    });
+
+    await positions.flush(entry.context.characterId);
     const stored = await prisma.characterWorldState.findUniqueOrThrow({
       where: { characterId: entry.context.characterId },
     });
     expect(stored.x).toBe(60);
     expect(stored.y).toBe(WORLD_SPAWN_POSITION.y);
-    expect(stored.revision).toBe(2);
+    expect(stored.revision).toBe(1);
   });
 
   it('rejects world bounds and obstacles without changing persisted state', async () => {
@@ -125,6 +140,7 @@ describe('WorldService (integration)', () => {
       where: { characterId: entry.context.characterId },
       data: { x: 0, y: 50, revision: 10 },
     });
+    await world.enter(principal, WORLD_ZONE_ID);
     await expect(
       world.move(principal, entry.context, 'W'),
     ).rejects.toMatchObject({ code: 'WORLD_MOVE_BLOCKED' });
@@ -133,6 +149,7 @@ describe('WorldService (integration)', () => {
       where: { characterId: entry.context.characterId },
       data: { x: 30, y: 10, revision: 11 },
     });
+    await world.enter(principal, WORLD_ZONE_ID);
     await expect(
       world.move(principal, entry.context, 'W'),
     ).rejects.toMatchObject({ code: 'WORLD_MOVE_BLOCKED' });
@@ -168,6 +185,7 @@ describe('WorldService (integration)', () => {
     const entry = await world.enter(principal, WORLD_ZONE_ID);
     const second = await characters.createCharacter(principal, 'Borin');
     await characters.selectCharacter(principal, second.id);
+    await world.enter(principal, WORLD_ZONE_ID);
 
     await expect(
       world.move(principal, entry.context, 'E'),
