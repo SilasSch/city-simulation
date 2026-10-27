@@ -125,24 +125,20 @@ export class WorldRepository {
     });
   }
 
-  async tryMove(
+  /**
+   * Persistiert eine Tick-Position. Greift nur, solange der Character noch in
+   * derselben Zone gespeichert ist; ein gelöschter Character wird ignoriert.
+   */
+  async savePosition(
     characterId: string,
-    expectedRevision: number,
+    zoneId: string,
     x: number,
     y: number,
-    client: DatabaseClient,
-  ): Promise<boolean> {
-    const result = await client.characterWorldState.updateMany({
-      where: { characterId, revision: expectedRevision },
-      data: {
-        x,
-        y,
-        revision: { increment: 1 },
-        interactionObjectId: null,
-        interactionStartedAt: null,
-        interactionEndsAt: null,
-      },
+    client: DatabaseClient = this.prisma,
+  ): Promise<void> {
+    await client.characterWorldState.updateMany({
+      where: { characterId, zoneId },
+      data: { x, y, revision: { increment: 1 } },
     });
-    return result.count === 1;
   }
 }
