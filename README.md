@@ -9,7 +9,7 @@ Live-Präsenz sowie persistente Simulationszeit, Energie und Interaktionen.
 
 - **Toolchain:** Node.js 24 (`>=24 <25`), pnpm **11.21.0**, Nx und
   TypeScript (strict)
-- **Client:** Angular Signals + Phaser; die Engine rendert bestätigten World
+- **Client:** Angular Signals + Three.js; die Engine rendert bestätigten World
   State und sendet Bewegungs-Commands
 - **Server:** NestJS als modularer Monolith, REST + Socket.IO
 - **Datenhaltung:** PostgreSQL + Prisma (Docker Compose)
@@ -35,7 +35,7 @@ pnpm dev            # Client (4200) + Server (3000) parallel
 Danach: <http://localhost:4200> — registrieren, Character anlegen (der
 erste wird automatisch ausgewählt) und die Zone **Central Square** betreten.
 WASD oder Pfeiltasten senden validierte Bewegungs-Commands; erst das
-Serverevent bewegt den Phaser-Marker. Gebäude und Brunnen blockieren Bewegung.
+Serverevent bewegt die Figur in der 3D-Szene. Gebäude und Brunnen blockieren Bewegung.
 An der südlichen Bank kann der Character rasten und Energie regenerieren.
 Position, Auswahl, Energie, Simulationszeit und Session werden wiederhergestellt.
 
@@ -93,7 +93,7 @@ Secure-Session-Cookies, REST-Origin-Schutz und WebSocket-Allowlist
 
 ```text
 apps/
-  client/            # Angular-Shell, World-State-Projektion und Phaser-Scene
+  client/            # Angular-Shell, World-State-Projektion und Three.js-Szene
   client-e2e/        # Playwright-Smoke-Test + isolierter Server-/DB-Start
   server/            # NestJS modularer Monolith
     src/auth/        # Accounts, Sessions, Argon2id, Rate-Limit, Cleanup
@@ -176,5 +176,5 @@ Die Spielwelt bleibt absichtlich eine statische Zone, besitzt nun aber eine
 code-native Karte, gemeinsame Collider, Online-Präsenz, eine persistente Uhr,
 Energie und einen ersten Bank-Interaktionsloop. Noch nicht enthalten sind
 Wirtschaft, NPCs, autonome Agenten oder Microservices. Der Client nutzt keine
-optimistische Mutation: Phaser zeigt ausschließlich vom Server bestätigten
+optimistische Mutation: Three.js zeigt ausschließlich vom Server bestätigten
 Zustand. Details stehen im Architekturüberblick und in ADR 0010–0013.

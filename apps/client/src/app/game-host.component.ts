@@ -8,7 +8,6 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import Phaser from 'phaser';
 import type {
   WorldEntity,
   WorldInteractionObjectId,
@@ -21,12 +20,13 @@ import {
   worldInteractionObject,
   worldZonePortalsIn,
 } from '@city/game-protocol';
-import { GameEngineService } from './game-engine.service';
+import { GameEngineService, type WorldView } from './game-engine.service';
 import { RealtimeService } from './realtime.service';
+import { zoneDisplayName } from './world-scene';
 import { WorldStateService } from './world-state.service';
 
 /**
- * Einzige Komponente mit Phaser-Bezug. Startet die Engine außerhalb der
+ * Einzige Komponente mit Engine-Bezug. Startet Three.js außerhalb der
  * Angular-Zone (kein unnötiges Change-Detection-Ticken) und zerstört sie
  * kontrolliert. Enthält keine Spielogik.
  */
@@ -144,6 +144,19 @@ import { WorldStateService } from './world-state.service';
       .game-container {
         width: 100%;
         height: 100%;
+      }
+      .zone-banner {
+        position: absolute;
+        z-index: 2;
+        left: 0.75rem;
+        bottom: 0.75rem;
+        margin: 0;
+        padding: 0.25rem 0.55rem;
+        border-radius: 0.35rem;
+        background: rgba(15, 23, 42, 0.6);
+        color: #e2e8f0;
+        font-size: 0.85rem;
+        pointer-events: none;
       }
       .meta {
         margin: 0;
@@ -282,13 +295,19 @@ import { WorldStateService } from './world-state.service';
           </p>
         }
 
+        @if (world.zoneId(); as zoneId) {
+          <p class="zone-banner">Zone: {{ zoneName(zoneId) }}</p>
+        }
+
         <div #gameContainer class="game-container"></div>
       </div>
 
       <div class="meta-row">
-        <p class="meta">WASD / Pfeiltasten · 16:9 Vollbreite</p>
+        <p class="meta">
+          WASD / Pfeiltasten · Maus ziehen: Kamera drehen · Mausrad: Zoom
+        </p>
         <p class="meta" data-testid="engine-status">
-          Phaser: {{ engineBooted() ? 'bereit' : 'startet…' }}
+          3D: {{ engineBooted() ? 'bereit' : 'startet…' }}
         </p>
         <p class="meta" data-testid="world-zone">
           Zone: {{ world.zoneId() ?? '—' }}
@@ -322,7 +341,8 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
   protected readonly realtime = inject(RealtimeService);
   protected readonly world = inject(WorldStateService);
   private readonly zone = inject(NgZone);
-  private game: Phaser.Game | null = null;
+  private game: WorldView | null = null;
+  protected readonly zoneName = zoneDisplayName;
 
   protected energyPercent(self: WorldEntity): number {
     return Math.max(0, Math.min(100, self.energy));
@@ -395,7 +415,6 @@ export class GameHostComponent implements AfterViewInit, OnDestroy {
         () => {
           this.engineBooted.set(true);
         },
-        Phaser.AUTO,
         this.world,
       );
     });

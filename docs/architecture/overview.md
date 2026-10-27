@@ -19,7 +19,7 @@ Module, keine Microservices.
 │ Angular-Shell   │ ◄────────────────► │ NestJS-Monolith              │
 │ Signals         │   HTTP-only Cookie │ auth · character · world     │
 │                 │                    │ core · health · realtime     │
-│ Phaser-Scene    │    Socket.IO       │ persistence · shared         │
+│ Three.js-Szene  │    Socket.IO       │ persistence · shared         │
 │ Central Square  │ ◄────────────────► │                              │
 └─────────────────┘  Kanal: protocol   └──────────────┬───────────────┘
       ▲ bestätigte Snapshots/Events                    │ PrismaService
@@ -165,7 +165,7 @@ automatisch ausgewählt (ADR 0009); die Auswahl überlebt Server-Neustarts
   (`npcCharacterId`): der Server prüft die Live-Position inkl. Patrol,
   liefert sofort ein privates `world-interact-result` (Gruß / Job-Shop-Hinweis)
   und hält den NPC kurz an. Außerhalb der Range kommt `INTERACTION_OUT_OF_RANGE`.
-- Angular und Phaser mutieren Weltzustand nicht optimistisch. Sie rendern
+- Angular und Three.js mutieren Weltzustand nicht optimistisch. Sie rendern
   Snapshots sowie bestätigte Join-/Leave-/Move-/Update-/Clock-Events.
 
 WebSocket-Nachrichten laufen über **einen** Socket.IO-Kanal (`protocol`) mit
@@ -229,12 +229,13 @@ Fehlercodes (stabil, maschinenlesbar; REST und WS konsistent):
 - `WorldStateService` projiziert Snapshot, Präsenz, Position, Uhr, Energie und
   Interaktion als Signals. Eine neue Connection-ID oder Character-Auswahl leert
   stale State und sendet erneut `world-enter`; Commands mutieren lokal nichts.
-- `GameHostComponent` kapselt Phaser außerhalb der Angular-Zone.
-  `GameEngineService` zeichnet Central Square und Entity-Marker, bildet
-  WASD/Pfeiltasten auf Richtungs-Commands ab und ignoriert Key-Repeat.
+- `GameHostComponent` kapselt Three.js außerhalb der Angular-Zone.
+  `GameEngineService` zeichnet die Zone als Grey-Box aus den gemeinsamen
+  Collidern, spiegelt Entities als Kapseln, führt eine begrenzte Orbit-Kamera
+  und bildet WASD/Pfeiltasten auf Richtungs-Commands ab (ohne Key-Repeat).
 - Auth-, Character- und Status-Komponenten bleiben dünne UI-Adapter.
 
-Angular besitzt Shell und reaktiven Zustand; Phaser rendert die Weltprojektion.
+Angular besitzt Shell und reaktiven Zustand; Three.js rendert die Weltprojektion.
 Weder Komponenten noch Scene treffen fachliche Bewegungsentscheidungen.
 
 ## Modulgrenzen
@@ -296,7 +297,7 @@ Aktivierung der Renovate GitHub App bleibt ein manueller Administrationsschritt.
 | World: Spawn, Snapshot, Re-Enter, Grenzen, Konkurrenz und Auswahlwechsel      | server        |
 | WebSocket: Origin/Session, Revalidierung, Protokoll, World-Events/Broadcast   | server        |
 | Angular: Auth, Character, Reconnect und World-State ohne Optimismus           | client        |
-| Phaser: Tastaturmapping, HEADLESS-Boot und sauberer Shutdown                  | client        |
+| Three.js: Tastaturmapping, Zonen-Grey-Box, Entities und sauberer Shutdown     | client        |
 | Browser-Smoke: Register → Character → Auswahl → Reload/WS → Logout            | client-e2e    |
 
 Server-Integrationstests laufen seriell gegen
