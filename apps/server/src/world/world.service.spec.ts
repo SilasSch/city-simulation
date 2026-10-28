@@ -165,9 +165,10 @@ describe('WorldService (integration)', () => {
 
     await prisma.characterWorldState.update({
       where: { characterId: entry.context.characterId },
-      data: { x: 0, y: 50, revision: 10 },
+      data: { x: WORLD_ENTITY_RADIUS, y: 50, revision: 10 },
     });
     await world.enter(principal, WORLD_ZONE_ID);
+    // Schon an der Grenze: kein Schritt, also auch nichts zu speichern.
     walk(principal, entry.context, -1, 0, 10);
     expect(positions.position(entry.context.characterId)).toMatchObject({
       x: WORLD_ENTITY_RADIUS,
