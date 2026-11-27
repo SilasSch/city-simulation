@@ -100,10 +100,10 @@ describe('WorldPresenceService', () => {
         .find((e) => e.characterId === NACHBAR.characterId),
     ).toEqual(before);
 
-    // Burn idle ticks then expect a server-driven step.
+    // Idle-Zeit abwarten, dann bewegt der Server-Tick den NPC stufenlos.
     let moved: WorldEntity[] = [];
-    for (let i = 0; i < 8 && moved.length === 0; i += 1) {
-      moved = presence.advanceNpcs();
+    for (let i = 0; i < 200 && moved.length === 0; i += 1) {
+      moved = presence.advanceNpcs(0.05);
     }
     expect(moved.length).toBe(1);
     expect(moved[0]!.characterId).toBe(NACHBAR.characterId);
@@ -120,8 +120,8 @@ describe('WorldPresenceService', () => {
     const before = presence.npc(NACHBAR.characterId)!;
     presence.pauseNpcInteract(NACHBAR.characterId, 3);
 
-    for (let i = 0; i < 3; i += 1) {
-      expect(presence.advanceNpcs()).toEqual([]);
+    for (let i = 0; i < 3 / 0.05 - 1; i += 1) {
+      expect(presence.advanceNpcs(0.05)).toEqual([]);
       expect(presence.npc(NACHBAR.characterId)).toEqual(before);
     }
   });

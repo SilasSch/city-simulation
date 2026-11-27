@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
-  NPC_INTERACT_PAUSE_TICKS,
+  NPC_INTERACT_PAUSE_SECONDS,
   NPC_INTERACTION_RANGE,
   WORLD_ZONE_ID,
   WORLD_ZONE_IDS,
@@ -319,7 +319,7 @@ export class WorldService {
       );
     }
 
-    this.presence.pauseNpcInteract(npc.characterId, NPC_INTERACT_PAUSE_TICKS);
+    this.presence.pauseNpcInteract(npc.characterId, NPC_INTERACT_PAUSE_SECONDS);
 
     return {
       kind: 'npc',

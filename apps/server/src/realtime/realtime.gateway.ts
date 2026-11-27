@@ -21,6 +21,7 @@ import {
   WORLD_INTERACT_RESULT_EVENT_TYPE,
   WORLD_POSITIONS_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
+  WORLD_TICK_SECONDS,
   WORLD_TRANSITION_COMMAND_TYPE,
   WORLD_ZONE_ID,
   WORLD_ZONE_IDS,
@@ -365,8 +366,25 @@ export class RealtimeGateway
     }
   }
 
-  /** 20-Hz-Zonen-Tick: Positionen und Input-Bestätigungen je Zone senden. */
+  /**
+   * 20-Hz-Zonen-Tick: Spieler- und NPC-Positionen samt Input-Bestätigungen je
+   * Zone senden. NPCs laufen auch bei leerem Raum weiter, damit Neuankömmlinge
+   * eine aktuelle Position sehen.
+   */
   private broadcastWorldTick(server: Server, result: WorldTickResult): void {
+    const movedNpcs = this.presence.advanceNpcs(WORLD_TICK_SECONDS);
+    if (movedNpcs.length > 0) {
+      const entries = result.zones.get(WORLD_ZONE_ID) ?? [];
+      for (const npc of movedNpcs) {
+        entries.push({
+          characterId: npc.characterId,
+          x: npc.x,
+          y: npc.y,
+          seq: 0,
+        });
+      }
+      result.zones.set(WORLD_ZONE_ID, entries);
+    }
     for (const [zoneId, entities] of result.zones) {
       for (const { characterId, x, y } of entities) {
         const current = this.presence.entity(characterId);
@@ -411,9 +429,6 @@ export class RealtimeGateway
   }
 
   private async broadcastSimulationTick(server: Server): Promise<void> {
-    // NPCs advance on the same 1 Hz timer even when the room is empty so
-    // late joiners see a live position; broadcasts only matter with peers.
-    const movedNpcs = this.presence.advanceNpcs();
     const characterIds = this.presence.characterIds();
 
     try {
@@ -440,15 +455,6 @@ export class RealtimeGateway
               createMessage(WORLD_ENTITY_UPDATED_EVENT_TYPE, { entity }),
             );
         }
-      }
-
-      for (const entity of movedNpcs) {
-        server
-          .to(worldRoom(WORLD_ZONE_ID))
-          .emit(
-            PROTOCOL_CHANNEL,
-            createMessage(WORLD_ENTITY_UPDATED_EVENT_TYPE, { entity }),
-          );
       }
     } catch (error) {
       this.logger.error(

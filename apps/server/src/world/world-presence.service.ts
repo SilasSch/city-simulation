@@ -103,21 +103,21 @@ export class WorldPresenceService {
   }
 
   /**
-   * Pauses patrol for a few sim ticks after a greet so the NPC holds still.
-   * No-op for unknown characterIds.
+   * Hält die Patrouille nach einem Gruß für `seconds` an. Unbekannte IDs
+   * werden ignoriert.
    */
-  pauseNpcInteract(characterId: string, ticks: number): void {
+  pauseNpcInteract(characterId: string, seconds: number): void {
     const runtime = this.npcRuntimes.get(characterId);
     if (!runtime) return;
     this.npcRuntimes.set(characterId, {
       ...runtime,
-      interactPauseTicksRemaining: Math.max(0, Math.floor(ticks)),
+      interactPauseSecondsRemaining: Math.max(0, seconds),
     });
   }
 
-  /** Advances zone NPC patrols; returns entities that changed position. */
-  advanceNpcs(): WorldEntity[] {
-    return tickNpcPatrols(this.npcRuntimes);
+  /** Bewegt die Zonen-NPCs um `deltaSeconds`; liefert die bewegten Entities. */
+  advanceNpcs(deltaSeconds: number): WorldEntity[] {
+    return tickNpcPatrols(this.npcRuntimes, deltaSeconds);
   }
 
   /** Sichtbare Entities einer Zone inkl. live NPC-Positionen (nur central-square). */

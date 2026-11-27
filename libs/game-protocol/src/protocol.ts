@@ -458,16 +458,17 @@ export function centralSquareNpcEntities(): WorldEntity[] {
 }
 
 /**
- * Einfache Patrol-Definitionen je Central-Square-NPC (server-tick).
- * Waypoints liegen auf begehbaren Plaza-Koordinaten; Idle-Pausen in Ticks.
+ * Patrol-Definitionen je Central-Square-NPC für den 20-Hz-Zonen-Tick.
+ * Waypoints liegen auf begehbaren Plaza-Koordinaten; die Strecken dazwischen
+ * läuft der NPC stufenlos ab.
  */
 export interface CentralSquareNpcPatrol {
   readonly characterId: string;
   readonly waypoints: readonly { readonly x: number; readonly y: number }[];
-  /** Pause at each waypoint, in simulation ticks (1 Hz on the gateway). */
-  readonly idleTicks: number;
-  /** Integer steps toward the next waypoint per tick. */
-  readonly step: number;
+  /** Pause an jedem Wegpunkt in Sekunden. */
+  readonly idleSeconds: number;
+  /** Laufgeschwindigkeit in logischen Einheiten pro Sekunde. */
+  readonly speed: number;
 }
 
 export const CENTRAL_SQUARE_NPC_PATROLS: readonly CentralSquareNpcPatrol[] = [
@@ -480,8 +481,9 @@ export const CENTRAL_SQUARE_NPC_PATROLS: readonly CentralSquareNpcPatrol[] = [
       { x: 46, y: 70 },
       { x: 46, y: 58 },
     ],
-    idleTicks: 3,
-    step: 1,
+    idleSeconds: 3,
+    // Halbe Spielergeschwindigkeit: schlendern statt laufen.
+    speed: 3,
   },
 ];
 
@@ -541,8 +543,8 @@ export type WorldInputPayload = z.infer<typeof worldInputPayloadSchema>;
 
 /** Shared interact reach for Central Square NPCs (same ballpark as POIs). */
 export const NPC_INTERACTION_RANGE = 10;
-/** Simulation ticks (1 Hz) an NPC stays put after a successful greet. */
-export const NPC_INTERACT_PAUSE_TICKS = 5;
+/** Sekunden, die ein NPC nach einem Gruß stehen bleibt. */
+export const NPC_INTERACT_PAUSE_SECONDS = 5;
 
 /**
  * Server-authored short lines for zone NPCs. Keys are characterIds.

@@ -6,14 +6,16 @@ import {
   type WorldEntity,
 } from '@city/game-protocol';
 
-/** Mutable in-memory patrol state for one zone NPC (process-local). */
+/** Prozesslokaler Patrouillen-Zustand eines Zonen-NPCs. */
 export interface NpcPatrolRuntime {
   entity: WorldEntity;
   waypointIndex: number;
-  idleTicksRemaining: number;
-  /** Extra hold after a player greet; burns before waypoint idle/move. */
-  interactPauseTicksRemaining: number;
+  idleSecondsRemaining: number;
+  /** Zusätzliche Pause nach einem Gruß; läuft vor Idle und Bewegung ab. */
+  interactPauseSecondsRemaining: number;
 }
+
+const ARRIVAL_EPSILON = 1e-6;
 
 export function createNpcPatrolRuntimes(): Map<string, NpcPatrolRuntime> {
   const runtimes = new Map<string, NpcPatrolRuntime>();
@@ -27,40 +29,48 @@ export function createNpcPatrolRuntimes(): Map<string, NpcPatrolRuntime> {
         y: home?.y ?? entity.y,
       },
       waypointIndex: 0,
-      idleTicksRemaining: patrol?.idleTicks ?? 0,
-      interactPauseTicksRemaining: 0,
+      idleSecondsRemaining: patrol?.idleSeconds ?? 0,
+      interactPauseSecondsRemaining: 0,
     });
   }
   return runtimes;
 }
 
 /**
- * Advances one NPC by at most one patrol step (or burns an idle tick).
- * Returns whether the entity position changed.
+ * Bewegt einen NPC um `deltaSeconds` stufenlos auf seinen nächsten Wegpunkt
+ * zu (oder lässt Pause bzw. Idle-Zeit ablaufen). Am Wegpunkt beginnt die
+ * Idle-Zeit; ein blockierter Abschnitt wird übersprungen.
  */
 export function advanceNpcPatrol(
   runtime: NpcPatrolRuntime,
   patrol: CentralSquareNpcPatrol,
+  deltaSeconds: number,
 ): { runtime: NpcPatrolRuntime; moved: boolean } {
   if (patrol.waypoints.length === 0) {
     return { runtime, moved: false };
   }
 
-  if (runtime.interactPauseTicksRemaining > 0) {
+  if (runtime.interactPauseSecondsRemaining > ARRIVAL_EPSILON) {
     return {
       runtime: {
         ...runtime,
-        interactPauseTicksRemaining: runtime.interactPauseTicksRemaining - 1,
+        interactPauseSecondsRemaining: Math.max(
+          0,
+          runtime.interactPauseSecondsRemaining - deltaSeconds,
+        ),
       },
       moved: false,
     };
   }
 
-  if (runtime.idleTicksRemaining > 0) {
+  if (runtime.idleSecondsRemaining > ARRIVAL_EPSILON) {
     return {
       runtime: {
         ...runtime,
-        idleTicksRemaining: runtime.idleTicksRemaining - 1,
+        idleSecondsRemaining: Math.max(
+          0,
+          runtime.idleSecondsRemaining - deltaSeconds,
+        ),
       },
       moved: false,
     };
@@ -68,63 +78,55 @@ export function advanceNpcPatrol(
 
   const { x, y } = runtime.entity;
   let waypointIndex = runtime.waypointIndex % patrol.waypoints.length;
-  let target = patrol.waypoints[waypointIndex]!;
+  let target = patrol.waypoints[waypointIndex];
+  if (!target) return { runtime, moved: false };
 
-  // Finished idle at the current waypoint — aim for the next one.
-  if (x === target.x && y === target.y) {
-    if (patrol.waypoints.length === 1) {
-      return { runtime, moved: false };
-    }
+  // Idle am aktuellen Wegpunkt beendet: den nächsten ansteuern.
+  if (Math.hypot(target.x - x, target.y - y) <= ARRIVAL_EPSILON) {
+    if (patrol.waypoints.length === 1) return { runtime, moved: false };
     waypointIndex = (waypointIndex + 1) % patrol.waypoints.length;
-    target = patrol.waypoints[waypointIndex]!;
+    target = patrol.waypoints[waypointIndex];
+    if (!target) return { runtime, moved: false };
   }
 
-  const step = Math.max(1, Math.floor(patrol.step));
-  let nextX = x;
-  let nextY = y;
-  if (x !== target.x) {
-    const dx = target.x - x;
-    nextX = x + Math.sign(dx) * Math.min(step, Math.abs(dx));
-  } else if (y !== target.y) {
-    const dy = target.y - y;
-    nextY = y + Math.sign(dy) * Math.min(step, Math.abs(dy));
-  }
+  const distance = Math.hypot(target.x - x, target.y - y);
+  const travel = Math.min(distance, patrol.speed * deltaSeconds);
+  const arrived = distance - travel <= ARRIVAL_EPSILON;
+  const nextX = arrived ? target.x : x + ((target.x - x) / distance) * travel;
+  const nextY = arrived ? target.y : y + ((target.y - y) / distance) * travel;
 
   if (!isWorldPositionWalkable(nextX, nextY)) {
-    // Skip a blocked segment by idling and rotating to the following waypoint.
-    const skipIndex = (waypointIndex + 1) % patrol.waypoints.length;
     return {
       runtime: {
         ...runtime,
-        waypointIndex: skipIndex,
-        idleTicksRemaining: patrol.idleTicks,
-        interactPauseTicksRemaining: 0,
+        waypointIndex: (waypointIndex + 1) % patrol.waypoints.length,
+        idleSecondsRemaining: patrol.idleSeconds,
       },
       moved: false,
     };
   }
 
-  const arrived = nextX === target.x && nextY === target.y;
   return {
     runtime: {
       entity: { ...runtime.entity, x: nextX, y: nextY },
       waypointIndex,
-      idleTicksRemaining: arrived ? patrol.idleTicks : 0,
-      interactPauseTicksRemaining: 0,
+      idleSecondsRemaining: arrived ? patrol.idleSeconds : 0,
+      interactPauseSecondsRemaining: 0,
     },
     moved: nextX !== x || nextY !== y,
   };
 }
 
-/** Ticks every NPC runtime once; returns entities whose position changed. */
+/** Bewegt alle NPCs um `deltaSeconds`; liefert die bewegten Entities. */
 export function tickNpcPatrols(
   runtimes: Map<string, NpcPatrolRuntime>,
+  deltaSeconds: number,
 ): WorldEntity[] {
   const moved: WorldEntity[] = [];
   for (const [characterId, runtime] of runtimes) {
     const patrol = centralSquareNpcPatrol(characterId);
     if (!patrol) continue;
-    const result = advanceNpcPatrol(runtime, patrol);
+    const result = advanceNpcPatrol(runtime, patrol, deltaSeconds);
     runtimes.set(characterId, result.runtime);
     if (result.moved) {
       moved.push(result.runtime.entity);
