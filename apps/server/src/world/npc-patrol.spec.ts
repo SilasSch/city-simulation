@@ -23,7 +23,7 @@ describe('npc patrol', () => {
     }
   });
 
-  it('moves one step toward the next waypoint after idle ends', () => {
+  it('walks toward the next waypoint at patrol speed after the idle time', () => {
     const runtimes = createNpcPatrolRuntimes();
     const nachbar = CENTRAL_SQUARE_NPCS[0]!;
     const patrol = CENTRAL_SQUARE_NPC_PATROLS[0]!;
@@ -31,66 +31,63 @@ describe('npc patrol', () => {
 
     expect(runtime.entity.x).toBe(42);
     expect(runtime.entity.y).toBe(58);
-    expect(runtime.idleTicksRemaining).toBe(patrol.idleTicks);
+    expect(runtime.idleSecondsRemaining).toBe(patrol.idleSeconds);
 
-    let current = runtime;
-    for (let i = 0; i < patrol.idleTicks; i += 1) {
-      const paused = advanceNpcPatrol(current, patrol);
-      expect(paused.moved).toBe(false);
-      expect(paused.runtime.entity.x).toBe(42);
-      expect(paused.runtime.entity.y).toBe(58);
-      current = paused.runtime;
-    }
+    const idle = advanceNpcPatrol(runtime, patrol, patrol.idleSeconds);
+    expect(idle.moved).toBe(false);
+    expect(idle.runtime.entity).toMatchObject({ x: 42, y: 58 });
 
-    const moved = advanceNpcPatrol(current, patrol);
+    // Nächster Wegpunkt (34, 58): nach 1 s um `speed` Einheiten näher.
+    const moved = advanceNpcPatrol(idle.runtime, patrol, 1);
     expect(moved.moved).toBe(true);
     expect(moved.runtime.entity).toEqual(
       expect.objectContaining({
         characterId: nachbar.characterId,
         kind: 'npc',
-        x: 41,
+        x: 42 - patrol.speed,
         y: 58,
       }),
     );
-    expect(
-      isWorldPositionWalkable(moved.runtime.entity.x, moved.runtime.entity.y),
-    ).toBe(true);
+  });
+
+  it('reaches the waypoint exactly and idles there again', () => {
+    const runtimes = createNpcPatrolRuntimes();
+    const patrol = CENTRAL_SQUARE_NPC_PATROLS[0]!;
+    let runtime = runtimes.get(patrol.characterId)!;
+    runtime = { ...runtime, idleSecondsRemaining: 0 };
+
+    const arrived = advanceNpcPatrol(runtime, patrol, 8 / patrol.speed + 1);
+    expect(arrived.runtime.entity).toMatchObject({ x: 34, y: 58 });
+    expect(arrived.runtime.idleSecondsRemaining).toBe(patrol.idleSeconds);
   });
 
   it('stays inside walkable Central Square bounds across a full loop', () => {
     const runtimes = createNpcPatrolRuntimes();
     const patrol = CENTRAL_SQUARE_NPC_PATROLS[0]!;
     const home = patrol.waypoints[0]!;
-
-    // Idle + steps around the rectangle should revisit home without leaving bounds.
-    const budget =
-      patrol.idleTicks * patrol.waypoints.length +
-      patrol.waypoints.reduce((sum, point, index) => {
-        const previous =
-          patrol.waypoints[
-            (index - 1 + patrol.waypoints.length) % patrol.waypoints.length
-          ]!;
-        return (
-          sum + Math.abs(point.x - previous.x) + Math.abs(point.y - previous.y)
-        );
-      }, 0) +
-      5;
+    const loopLength = patrol.waypoints.reduce((sum, point, index) => {
+      const previous =
+        patrol.waypoints[
+          (index - 1 + patrol.waypoints.length) % patrol.waypoints.length
+        ]!;
+      return sum + Math.hypot(point.x - previous.x, point.y - previous.y);
+    }, 0);
+    const seconds =
+      patrol.idleSeconds * patrol.waypoints.length + loopLength / patrol.speed;
 
     let sawDeparture = false;
-    for (let tick = 0; tick < budget; tick += 1) {
-      const moved = tickNpcPatrols(runtimes);
+    let returnedHome = false;
+    for (let tick = 0; tick < (seconds + 1) / 0.05; tick += 1) {
+      const moved = tickNpcPatrols(runtimes, 0.05);
       const entity = runtimes.get(patrol.characterId)!.entity;
       expect(isWorldPositionWalkable(entity.x, entity.y)).toBe(true);
-      if (entity.x !== home.x || entity.y !== home.y) {
-        sawDeparture = true;
-      }
-      for (const update of moved) {
-        expect(update.kind).toBe('npc');
-        expect(isWorldPositionWalkable(update.x, update.y)).toBe(true);
-      }
+      if (entity.x !== home.x || entity.y !== home.y) sawDeparture = true;
+      else if (sawDeparture) returnedHome = true;
+      for (const update of moved) expect(update.kind).toBe('npc');
     }
 
     expect(sawDeparture).toBe(true);
+    expect(returnedHome).toBe(true);
   });
 
   it('holds still during interact pause before resuming idle/move', () => {
@@ -100,20 +97,19 @@ describe('npc patrol', () => {
     let runtime = runtimes.get(nachbar.characterId)!;
     runtime = {
       ...runtime,
-      idleTicksRemaining: 0,
-      interactPauseTicksRemaining: 2,
+      idleSecondsRemaining: 0,
+      interactPauseSecondsRemaining: 0.1,
     };
 
-    const first = advanceNpcPatrol(runtime, patrol);
+    const first = advanceNpcPatrol(runtime, patrol, 0.05);
     expect(first.moved).toBe(false);
-    expect(first.runtime.interactPauseTicksRemaining).toBe(1);
+    expect(first.runtime.interactPauseSecondsRemaining).toBeCloseTo(0.05);
     expect(first.runtime.entity.x).toBe(runtime.entity.x);
 
-    const second = advanceNpcPatrol(first.runtime, patrol);
+    const second = advanceNpcPatrol(first.runtime, patrol, 0.05);
     expect(second.moved).toBe(false);
-    expect(second.runtime.interactPauseTicksRemaining).toBe(0);
 
-    const third = advanceNpcPatrol(second.runtime, patrol);
+    const third = advanceNpcPatrol(second.runtime, patrol, 0.05);
     expect(third.moved).toBe(true);
   });
 });
