@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   NPC_INTERACT_PAUSE_TICKS,
   NPC_INTERACTION_RANGE,
+  WORLD_ZONE_ID,
   WORLD_ZONE_IDS,
   centralSquareNpcGreeting,
   isNpcWorldInteractPayload,
@@ -82,17 +83,22 @@ export class WorldService {
     };
   }
 
+  /**
+   * Betritt die Welt mit dem ausgewählten Character. Die Zone bestimmt der
+   * Server (#99): die zuletzt gespeicherte, für neue Characters
+   * `central-square`. `requestedZoneId` wird nur validiert; Zonen wechselt
+   * man ausschließlich über Portale.
+   */
   async enter(
     principal: AuthenticatedPrincipal,
-    zoneId: WorldZoneId,
+    requestedZoneId: WorldZoneId,
   ): Promise<WorldEntry> {
-    // zoneId ist bereits durch game-protocol validiert; der explizite Check
-    // schützt direkte Service-Aufrufer vor unbekannten Zonen.
-    if (!(WORLD_ZONE_IDS as readonly string[]).includes(zoneId)) {
+    // Bereits durch game-protocol validiert; der explizite Check schützt
+    // direkte Service-Aufrufer vor unbekannten Zonen.
+    if (!(WORLD_ZONE_IDS as readonly string[]).includes(requestedZoneId)) {
       throw new ApplicationError('VALIDATION_ERROR', 400, 'Unknown world zone');
     }
 
-    const spawn = worldZoneSpawn(zoneId);
     // Der Eintritt liest die Position aus PostgreSQL: die Tick-Position des
     // ausgewählten Characters vorher sichern (er kann noch in einem anderen
     // Tab unterwegs sein).
@@ -117,6 +123,12 @@ export class WorldService {
       }
 
       const previous = await this.worlds.findState(selected.id, tx);
+      const zoneId: WorldZoneId =
+        previous &&
+        (WORLD_ZONE_IDS as readonly string[]).includes(previous.zoneId)
+          ? (previous.zoneId as WorldZoneId)
+          : WORLD_ZONE_ID;
+      const spawn = worldZoneSpawn(zoneId);
       const state = await this.worlds.enter(
         selected.id,
         zoneId,
@@ -125,8 +137,7 @@ export class WorldService {
         simulatedNow,
         tx,
       );
-      const switchedZone = previous !== null && previous.zoneId !== zoneId;
-      if (switchedZone || !isWorldPositionWalkable(state.x, state.y, zoneId)) {
+      if (!isWorldPositionWalkable(state.x, state.y, zoneId)) {
         await this.worlds.relocate(selected.id, spawn.x, spawn.y, tx);
       }
       return { characterId: selected.id, zoneId } satisfies EnteredWorldContext;
@@ -135,7 +146,7 @@ export class WorldService {
     const stored = await this.simulation.entity(context.characterId);
     this.positions.track(
       context.characterId,
-      zoneId,
+      context.zoneId,
       stored.x,
       stored.y,
       stored.interaction !== null,
@@ -149,7 +160,7 @@ export class WorldService {
     this.logger.log({
       event: 'world-entered',
       characterId: entry.context.characterId,
-      zoneId,
+      zoneId: context.zoneId,
     });
     return entry;
   }

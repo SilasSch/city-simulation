@@ -83,7 +83,8 @@ export class WorldStateService {
       this.clearWorld();
 
       if (nextKey) {
-        // Default remains central-square; portals switch zone via world-transition.
+        // Der Server setzt in der gespeicherten Zone fort (#99); das Feld
+        // bleibt aus Protokollgründen und wird nur validiert.
         this.realtime.sendWorldEnter(WORLD_ZONE_ID);
       }
     });

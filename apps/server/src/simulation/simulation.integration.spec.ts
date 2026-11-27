@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   CENTRAL_SQUARE_NPCS,
+  MARKET_LANE_SPAWN_POSITION,
   MARKET_LANE_ZONE_ID,
   NPC_INTERACTION_RANGE,
   WORLD_ZONE_ID,
@@ -57,6 +58,21 @@ describe('first simulation loop (integration)', () => {
     if (resolution.status !== 'ok') throw new Error('Session not available');
     await characters.createCharacter(resolution.session.principal, 'Ayla');
     return resolution.session.principal;
+  }
+
+  /** Zonen wechselt man nur per Portal (#99): Marktgasse als gespeicherte Zone setzen. */
+  async function enterMarketLane(
+    principal: AuthenticatedPrincipal,
+  ): ReturnType<WorldService['enter']> {
+    const square = await world.enter(principal, WORLD_ZONE_ID);
+    await prisma.characterWorldState.update({
+      where: { characterId: square.context.characterId },
+      data: {
+        zoneId: MARKET_LANE_ZONE_ID,
+        ...MARKET_LANE_SPAWN_POSITION,
+      },
+    });
+    return world.enter(principal, WORLD_ZONE_ID);
   }
 
   it('validates range, concurrency, completion reward, and movement abort', async () => {
@@ -250,7 +266,7 @@ describe('first simulation loop (integration)', () => {
   it('pays money when a market-lane stall job completes', async () => {
     const principal = await player();
     const stall = worldInteractionObject('stall-north');
-    const entry = await world.enter(principal, MARKET_LANE_ZONE_ID);
+    const entry = await enterMarketLane(principal);
     await prisma.characterWorldState.update({
       where: { characterId: entry.context.characterId },
       data: { x: stall.x, y: stall.y, money: 0 },
@@ -294,7 +310,7 @@ describe('first simulation loop (integration)', () => {
       world.interact(principal, square.context, { objectId: 'stall-north' }),
     ).rejects.toMatchObject({ code: 'INTERACTION_OUT_OF_RANGE' });
 
-    const lane = await world.enter(principal, MARKET_LANE_ZONE_ID);
+    const lane = await enterMarketLane(principal);
     await expect(
       world.interact(principal, lane.context, { objectId: 'stall-north' }),
     ).rejects.toMatchObject({ code: 'INTERACTION_OUT_OF_RANGE' });
@@ -311,7 +327,7 @@ describe('first simulation loop (integration)', () => {
   it('rejects and applies market-lane street-food purchases by wallet', async () => {
     const principal = await player();
     const shop = worldInteractionObject('street-food-east');
-    const entry = await world.enter(principal, MARKET_LANE_ZONE_ID);
+    const entry = await enterMarketLane(principal);
     await prisma.characterWorldState.update({
       where: { characterId: entry.context.characterId },
       data: { x: shop.x, y: shop.y, money: 10, energy: 50 },
@@ -353,7 +369,7 @@ describe('first simulation loop (integration)', () => {
       }),
     ).rejects.toMatchObject({ code: 'INTERACTION_OUT_OF_RANGE' });
 
-    const lane = await world.enter(principal, MARKET_LANE_ZONE_ID);
+    const lane = await enterMarketLane(principal);
     await expect(
       world.interact(principal, lane.context, {
         objectId: 'street-food-east',
