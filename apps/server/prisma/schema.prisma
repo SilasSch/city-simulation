@@ -76,8 +76,8 @@ model CharacterWorldState {
   characterId          String    @id
   character            Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
   zoneId               String
-  x                    Int
-  y                    Int
+  x                    Float
+  y                    Float
   revision             Int       @default(0)
   energy               Float     @default(100)
   energyUpdatedAt      DateTime  @default(now())

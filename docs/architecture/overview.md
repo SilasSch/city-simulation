@@ -132,7 +132,8 @@ automatisch ausgewählt (ADR 0009); die Auswahl überlebt Server-Neustarts
 
 ## Central Square, Market Lane und Simulationsloop (ADR 0010 und 0011)
 
-- Zonen teilen ein logisches Koordinatensystem (0–100) und Schrittweite 5.
+- Zonen teilen ein logisches Koordinatensystem (0–100); Positionen sind
+  stufenlos (Kollisionsradius 1, Laufgeschwindigkeit 6 Einheiten/s).
   `central-square` (Spawn 50, 70, Gebäude/Brunnen) ist die Startzone;
   `market-lane` (Spawn 50, 50, Stände entlang einer Gasse) ist die zweite
   Zone. Client und Server importieren dieselben Geometriedaten je Zone;
@@ -165,8 +166,10 @@ automatisch ausgewählt (ADR 0009); die Auswahl überlebt Server-Neustarts
   (`npcCharacterId`): der Server prüft die Live-Position inkl. Patrol,
   liefert sofort ein privates `world-interact-result` (Gruß / Job-Shop-Hinweis)
   und hält den NPC kurz an. Außerhalb der Range kommt `INTERACTION_OUT_OF_RANGE`.
-- Angular und Three.js mutieren Weltzustand nicht optimistisch. Sie rendern
-  Snapshots sowie bestätigte Join-/Leave-/Move-/Update-/Clock-Events.
+- Einzige Ausnahme vom bestätigten Zustand ist die Darstellung der eigenen
+  Figur: Die Engine sagt sie mit der gemeinsamen Bewegungsfunktion voraus und
+  gleicht sie an `world-positions` an. Fremde Entities werden interpoliert;
+  der World-State selbst mutiert nichts optimistisch.
 
 WebSocket-Nachrichten laufen über **einen** Socket.IO-Kanal (`protocol`) mit
 einheitlicher, versionierter Hülle:
@@ -193,10 +196,10 @@ Aktuelle Nachrichten:
 | Server→Client | `connection-established` | Verbindung mit ID bestätigen                   |
 | Client→Server | `world-enter`            | Zone betreten                                  |
 | Server→Client | `world-snapshot`         | Präsenz, eigene ID und Uhr initialisieren      |
-| Client→Server | `world-move`             | Validierte Bewegungsrichtung anfordern         |
+| Client→Server | `world-input`            | Bewegungsabsicht mit Sequenz melden            |
 | Client→Server | `world-interact`         | POI- oder NPC-Interaktion anfordern            |
 | Server→Client | `world-interact-result`  | Kurzes NPC-Feedback (nur anfragender Client)   |
-| Server→Client | `world-position-changed` | Persistierte Position broadcasten              |
+| Server→Client | `world-positions`        | Tick-Positionen und Input-Bestätigungen        |
 | Server→Client | `world-entity-joined`    | Online-Entity hinzufügen                       |
 | Server→Client | `world-entity-left`      | Offline-Entity entfernen                       |
 | Server→Client | `world-entity-updated`   | Energie/Interaktion aktualisieren              |
@@ -232,16 +235,16 @@ Fehlercodes (stabil, maschinenlesbar; REST und WS konsistent):
 - `GameHostComponent` kapselt Three.js außerhalb der Angular-Zone.
   `GameEngineService` zeichnet die Zone als Grey-Box aus den gemeinsamen
   Collidern, spiegelt Entities als Kapseln, führt eine begrenzte Orbit-Kamera
-  und bildet WASD/Pfeiltasten auf Richtungs-Commands ab (ohne Key-Repeat).
+  und übersetzt gehaltene WASD/Pfeiltasten kamerarelativ in `world-input`.
 - Auth-, Character- und Status-Komponenten bleiben dünne UI-Adapter.
 
 Angular besitzt Shell und reaktiven Zustand; Three.js rendert die Weltprojektion.
 Weder Komponenten noch Scene treffen fachliche Bewegungsentscheidungen.
 
-> **Umbau v0.10–v1.0:** Three.js ersetzt Phaser bereits (ADR 0014), und
-> Positionen laufen im In-Memory-Zonen-Tick (ADR 0015). Noch offen ist die
-> stufenlose Bewegung mit Client-Prediction, die `world-move` (N/E/S/W)
-> ablöst. Die Spec steht in [`docs/plans/3d-v1.0.md`](../plans/3d-v1.0.md).
+> **Umbau v0.10–v1.0:** Three.js ersetzt Phaser (ADR 0014), Positionen laufen
+> im In-Memory-Zonen-Tick, und Bewegung ist stufenlos mit Client-Prediction
+> (ADR 0015, Protokoll v4). Die Spec steht in
+> [`docs/plans/3d-v1.0.md`](../plans/3d-v1.0.md).
 
 ## Modulgrenzen
 

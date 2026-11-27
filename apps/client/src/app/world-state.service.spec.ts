@@ -9,7 +9,7 @@ import {
   WORLD_ENTITY_JOINED_EVENT_TYPE,
   WORLD_ENTITY_LEFT_EVENT_TYPE,
   WORLD_INTERACT_RESULT_EVENT_TYPE,
-  WORLD_POSITION_CHANGED_EVENT_TYPE,
+  WORLD_POSITIONS_EVENT_TYPE,
   WORLD_SNAPSHOT_EVENT_TYPE,
   WORLD_ZONE_ID,
   MARKET_LANE_ZONE_ID,
@@ -50,7 +50,7 @@ describe('WorldStateService', () => {
     serverMessages: Subject<ParsedServerMessage>;
     sendWorldEnter: ReturnType<typeof vi.fn>;
     sendWorldInteract: ReturnType<typeof vi.fn>;
-    sendWorldMove: ReturnType<typeof vi.fn>;
+    sendWorldInput: ReturnType<typeof vi.fn>;
     sendWorldTransition: ReturnType<typeof vi.fn>;
   };
   let world: WorldStateService;
@@ -64,7 +64,7 @@ describe('WorldStateService', () => {
       serverMessages,
       sendWorldEnter: vi.fn(),
       sendWorldInteract: vi.fn(),
-      sendWorldMove: vi.fn(),
+      sendWorldInput: vi.fn(),
       sendWorldTransition: vi.fn(),
     };
 
@@ -125,27 +125,26 @@ describe('WorldStateService', () => {
     );
 
     expect(world.selfEntity()?.x).toBe(50);
-    world.move('E');
-    expect(realtimeStub.sendWorldMove).toHaveBeenCalledWith('E');
+    expect(world.sendInput({ x: 1, y: 0 })).toBe(1);
+    expect(realtimeStub.sendWorldInput).toHaveBeenCalledWith({
+      seq: 1,
+      x: 1,
+      y: 0,
+    });
     expect(world.selfEntity()?.x).toBe(50);
 
     serverMessages.next(
       parsedEvent(
-        createMessage(WORLD_POSITION_CHANGED_EVENT_TYPE, {
-          entity: {
-            characterId: CHARACTER_A.id,
-            name: CHARACTER_A.name,
-            x: 55,
-            y: 50,
-            energy: 90,
-            money: 0,
-            interaction: null,
-          },
+        createMessage(WORLD_POSITIONS_EVENT_TYPE, {
+          zoneId: WORLD_ZONE_ID,
+          entities: [{ characterId: CHARACTER_A.id, x: 50.3, y: 50, seq: 1 }],
         }),
       ),
     );
 
-    expect(world.selfEntity()?.x).toBe(55);
+    expect(world.selfEntity()?.x).toBe(50.3);
+    expect(world.selfEntity()?.energy).toBe(90);
+    expect(world.selfAck()).toEqual({ seq: 1, x: 50.3, y: 50 });
   });
 
   it('clears stale state and ignores a snapshot for the previous selection', () => {
@@ -259,16 +258,9 @@ describe('WorldStateService', () => {
 
     serverMessages.next(
       parsedEvent(
-        createMessage(WORLD_POSITION_CHANGED_EVENT_TYPE, {
-          entity: {
-            characterId: CHARACTER_B.id,
-            name: CHARACTER_B.name,
-            x: 45,
-            y: 70,
-            energy: 90,
-            money: 0,
-            interaction: null,
-          },
+        createMessage(WORLD_POSITIONS_EVENT_TYPE, {
+          zoneId: WORLD_ZONE_ID,
+          entities: [{ characterId: CHARACTER_B.id, x: 45, y: 70, seq: 4 }],
         }),
       ),
     );
@@ -292,9 +284,9 @@ describe('WorldStateService', () => {
     connectionId.set(CONNECTION_A);
     TestBed.flushEffects();
 
-    world.move('N');
+    expect(world.sendInput({ x: 0, y: -1 })).toBeNull();
 
-    expect(realtimeStub.sendWorldMove).not.toHaveBeenCalled();
+    expect(realtimeStub.sendWorldInput).not.toHaveBeenCalled();
   });
 
   it('ignores non-world server events', () => {

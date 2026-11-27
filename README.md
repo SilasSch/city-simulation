@@ -34,8 +34,9 @@ pnpm dev            # Client (4200) + Server (3000) parallel
 
 Danach: <http://localhost:4200> — registrieren, Character anlegen (der
 erste wird automatisch ausgewählt) und die Zone **Central Square** betreten.
-WASD oder Pfeiltasten senden validierte Bewegungs-Commands; erst das
-Serverevent bewegt die Figur in der 3D-Szene. Gebäude und Brunnen blockieren Bewegung.
+WASD oder Pfeiltasten steuern die Figur stufenlos relativ zur Kamera; der Client
+sagt die eigene Bewegung voraus, der Server bestätigt sie im 20-Hz-Tick.
+Gebäude und Brunnen blockieren Bewegung, an Wänden gleitet die Figur entlang.
 An der südlichen Bank kann der Character rasten und Energie regenerieren.
 Position, Auswahl, Energie, Simulationszeit und Session werden wiederhergestellt.
 
@@ -138,18 +139,18 @@ konfigurierten `CLIENT_ORIGIN`; CORS verwendet dieselbe Allowlist.
 
 Alle Nachrichten laufen über den Socket.IO-Kanal `protocol`:
 
-| Richtung      | Typ                      | Bedeutung                                               |
-| ------------- | ------------------------ | ------------------------------------------------------- |
-| Client→Server | `connect`                | Technischen Protokoll-Handshake abschließen             |
-| Client→Server | `world-enter`            | `central-square` betreten                               |
-| Server→Client | `world-snapshot`         | Bestätigte Projektion aller Online-Entities laden       |
-| Client→Server | `world-move`             | Richtung `N/E/S/W` als Command senden                   |
-| Client→Server | `world-interact`         | Interaktion mit einem Weltobjekt starten                |
-| Server→Client | `world-position-changed` | Persistierte Position an die Zone broadcasten           |
-| Server→Client | `world-entity-joined`    | Ersten Socket eines Characters ankündigen               |
-| Server→Client | `world-entity-left`      | Letzten Socket eines Characters abmelden                |
-| Server→Client | `world-entity-updated`   | Energie und Interaktionsfortschritt aktualisieren       |
-| Server→Client | `simulation-clock`       | Aktuelle Simulationszeit und Geschwindigkeit übertragen |
+| Richtung      | Typ                    | Bedeutung                                               |
+| ------------- | ---------------------- | ------------------------------------------------------- |
+| Client→Server | `connect`              | Technischen Protokoll-Handshake abschließen             |
+| Client→Server | `world-enter`          | `central-square` betreten                               |
+| Server→Client | `world-snapshot`       | Bestätigte Projektion aller Online-Entities laden       |
+| Client→Server | `world-input`          | Richtungsvektor (Länge ≤ 1) mit Sequenznummer senden    |
+| Client→Server | `world-interact`       | Interaktion mit einem Weltobjekt starten                |
+| Server→Client | `world-positions`      | Tick-Positionen und bestätigte Input-Sequenzen (20 Hz)  |
+| Server→Client | `world-entity-joined`  | Ersten Socket eines Characters ankündigen               |
+| Server→Client | `world-entity-left`    | Letzten Socket eines Characters abmelden                |
+| Server→Client | `world-entity-updated` | Energie und Interaktionsfortschritt aktualisieren       |
+| Server→Client | `simulation-clock`     | Aktuelle Simulationszeit und Geschwindigkeit übertragen |
 
 Der Handshake prüft exakten Origin und Session genau einmal. Danach hält ein
 aktives Session-Socket-Register den Command-Pfad datenbankfrei; Logout und Ablauf
@@ -183,5 +184,5 @@ Zustand. Details stehen im Architekturüberblick und in ADR 0010–0013.
 Der Umbau auf 3D läuft (v0.10–v1.0, Spec in
 [`docs/plans/3d-v1.0.md`](docs/plans/3d-v1.0.md)): Three.js rendert die Zonen
 bereits als Grey-Box (ADR 0014), und Positionen leben in einem 20-Hz-Zonen-Tick
-mit periodischer Persistenz (ADR 0015). Bewegt wird noch schrittweise über
-`world-move`; stufenlose Bewegung mit Client-Prediction folgt.
+mit periodischer Persistenz (ADR 0015). Bewegung ist stufenlos mit
+Client-Prediction (Protokoll v4).
