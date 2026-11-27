@@ -140,6 +140,30 @@ describe('first simulation loop (integration)', () => {
       .entities[0];
     expect(completed?.interaction).toBeNull();
     expect(completed?.money).toBe(25);
+
+    // Losgehen direkt nach dem Ende, bevor der Tick abschließt: Lohn bleibt (#102).
+    await world.interact(principal, entry.context, { objectId: 'kiosk-north' });
+    const finishedNow = new Date(simulation.clockSnapshot().simulatedTime);
+    await prisma.characterWorldState.update({
+      where: { characterId: entry.context.characterId },
+      data: {
+        interactionStartedAt: new Date(finishedNow.getTime() - 180_001),
+        interactionEndsAt: new Date(finishedNow.getTime() - 1),
+      },
+    });
+    await simulation.abortInteraction(entry.context.characterId);
+    expect(await simulation.entity(entry.context.characterId)).toMatchObject({
+      money: 50,
+      interaction: null,
+    });
+
+    // Ein noch laufender Job bringt beim Abbruch nichts.
+    await world.interact(principal, entry.context, { objectId: 'kiosk-north' });
+    await simulation.abortInteraction(entry.context.characterId);
+    expect(await simulation.entity(entry.context.characterId)).toMatchObject({
+      money: 50,
+      interaction: null,
+    });
   });
 
   it('rejects and applies snack purchases by wallet balance', async () => {
