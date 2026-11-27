@@ -37,10 +37,13 @@ interface LivePosition {
   y: number;
   inputX: number;
   inputY: number;
-  /** Zuletzt angenommene Input-Sequenz. */
+  /** Zuletzt angenommene Input-Sequenz (für die Bestätigung an Clients). */
   seq: number;
-  /** Zuletzt an die Zone gemeldete Sequenz. */
-  broadcastSeq: number;
+  /** Höchste Sequenz je Quelle (Socket); mehrere Tabs zählen getrennt. */
+  seqBySource: Map<string, number>;
+  /** Zählt angenommene Inputs, damit jede Annahme bestätigt wird. */
+  inputVersion: number;
+  broadcastVersion: number;
   dirty: boolean;
   interacting: boolean;
   inputWindowStartedAt: number;
@@ -110,7 +113,9 @@ export class WorldPositionService
       inputX: 0,
       inputY: 0,
       seq: 0,
-      broadcastSeq: 0,
+      seqBySource: new Map(),
+      inputVersion: 0,
+      broadcastVersion: 0,
       dirty: false,
       interacting,
       inputWindowStartedAt: 0,
@@ -139,6 +144,7 @@ export class WorldPositionService
     characterId: string,
     zoneId: WorldZoneId,
     input: WorldInputPayload,
+    sourceId: string,
     now = Date.now(),
   ): void {
     const live = this.positions.get(characterId);
@@ -149,7 +155,12 @@ export class WorldPositionService
         'Enter the world before moving',
       );
     }
-    if (live.zoneId !== zoneId || input.seq <= live.seq) return;
+    if (
+      live.zoneId !== zoneId ||
+      input.seq <= (live.seqBySource.get(sourceId) ?? 0)
+    ) {
+      return;
+    }
 
     if (now - live.inputWindowStartedAt >= 1_000) {
       live.inputWindowStartedAt = now;
@@ -164,6 +175,8 @@ export class WorldPositionService
     live.inputX = direction.x;
     live.inputY = direction.y;
     live.seq = input.seq;
+    live.seqBySource.set(sourceId, input.seq);
+    live.inputVersion += 1;
   }
 
   /** Ein fester Simulationsschritt für alle Characters. */
@@ -196,8 +209,8 @@ export class WorldPositionService
         }
       }
 
-      if (!moved && live.seq === live.broadcastSeq) continue;
-      live.broadcastSeq = live.seq;
+      if (!moved && live.inputVersion === live.broadcastVersion) continue;
+      live.broadcastVersion = live.inputVersion;
       const entries = result.zones.get(live.zoneId) ?? [];
       entries.push({ characterId, x: live.x, y: live.y, seq: live.seq });
       result.zones.set(live.zoneId, entries);

@@ -118,6 +118,10 @@ export class WorldView {
     globalThis.addEventListener('keydown', this.handleKeydown);
     globalThis.addEventListener('keyup', this.handleKeyup);
     globalThis.addEventListener('blur', this.handleBlur);
+    globalThis.document?.addEventListener(
+      'visibilitychange',
+      this.handleVisibilityChange,
+    );
     this.renderer.setAnimationLoop(this.renderFrame);
   }
 
@@ -159,6 +163,10 @@ export class WorldView {
     globalThis.removeEventListener('keydown', this.handleKeydown);
     globalThis.removeEventListener('keyup', this.handleKeyup);
     globalThis.removeEventListener('blur', this.handleBlur);
+    globalThis.document?.removeEventListener(
+      'visibilitychange',
+      this.handleVisibilityChange,
+    );
     this.resizeObserver?.disconnect();
     this.controls.dispose();
     if (this.zoneGroup) {
@@ -269,9 +277,17 @@ export class WorldView {
     if (key) this.pressedKeys.delete(key);
   };
 
-  /** Fokusverlust lässt keine „klebende“ Taste zurück. */
+  /**
+   * Fokusverlust lässt keine „klebende“ Taste zurück. Der Stopp geht sofort
+   * raus: versteckte Tabs rendern keine Frames mehr, die ihn senden würden.
+   */
   private readonly handleBlur = (): void => {
     this.pressedKeys.clear();
+    this.selfMovement.setInput({ x: 0, y: 0 }, performance.now());
+  };
+
+  private readonly handleVisibilityChange = (): void => {
+    if (document.hidden) this.handleBlur();
   };
 }
 

@@ -70,9 +70,9 @@ describe('first simulation loop (integration)', () => {
     } satisfies Partial<ApplicationError>);
 
     // 34 Ticks à 0,3 Einheiten: von x = 50 in Reichweite der Bank (x = 62).
-    world.input(principal, entry.context, { seq: 1, x: 1, y: 0 });
+    world.input(principal, entry.context, { seq: 1, x: 1, y: 0 }, 'tab-a');
     for (let tick = 0; tick < 34; tick += 1) positions.tick();
-    world.input(principal, entry.context, { seq: 2, x: 0, y: 0 });
+    world.input(principal, entry.context, { seq: 2, x: 0, y: 0 }, 'tab-a');
     const simulatedNow = new Date(simulation.clockSnapshot().simulatedTime);
     await prisma.characterWorldState.update({
       where: { characterId: entry.context.characterId },
@@ -105,7 +105,7 @@ describe('first simulation loop (integration)', () => {
 
     await world.interact(principal, entry.context, { objectId: 'bench-south' });
     // Bewegung meldet den Abbruch; der Gateway schreibt ihn und broadcastet.
-    world.input(principal, entry.context, { seq: 3, x: -1, y: 0 });
+    world.input(principal, entry.context, { seq: 3, x: -1, y: 0 }, 'tab-a');
     expect(positions.tick().abortedInteractions).toEqual([
       entry.context.characterId,
     ]);

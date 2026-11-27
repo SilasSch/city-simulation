@@ -326,6 +326,8 @@ export class WorldService {
     principal: AuthenticatedPrincipal,
     context: EnteredWorldContext,
     payload: WorldInputPayload,
+    /** Absender (Socket-ID): Sequenzen zählen je Tab. */
+    sourceId: string,
   ): void {
     if (
       this.enteredByProfile.get(principal.playerProfileId) !==
@@ -337,7 +339,12 @@ export class WorldService {
         'Enter the world with the currently selected character first',
       );
     }
-    this.positions.setInput(context.characterId, context.zoneId, payload);
+    this.positions.setInput(
+      context.characterId,
+      context.zoneId,
+      payload,
+      sourceId,
+    );
   }
 
   /** Meldet jeden Zonen-Tick an den Transport. */

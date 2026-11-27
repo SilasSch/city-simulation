@@ -324,6 +324,7 @@ export class RealtimeGateway
             socketData.principal,
             socketData.world,
             parsed.payload,
+            client.id,
           );
           return;
         }

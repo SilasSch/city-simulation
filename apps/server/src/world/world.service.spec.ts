@@ -61,9 +61,9 @@ describe('WorldService (integration)', () => {
     y: number,
     ticks: number,
   ): void {
-    world.input(principal, context, { seq: (seq += 1), x, y });
+    world.input(principal, context, { seq: (seq += 1), x, y }, 'tab-a');
     for (let tick = 0; tick < ticks; tick += 1) positions.tick();
-    world.input(principal, context, { seq: (seq += 1), x: 0, y: 0 });
+    world.input(principal, context, { seq: (seq += 1), x: 0, y: 0 }, 'tab-a');
   }
   const STEP = WORLD_MOVE_SPEED * WORLD_TICK_SECONDS;
 
@@ -135,10 +135,18 @@ describe('WorldService (integration)', () => {
     );
 
     // Eine veraltete Sequenz setzt die Figur nicht wieder in Bewegung.
-    world.input(principal, entry.context, { seq: 1, x: 1, y: 0 });
+    world.input(principal, entry.context, { seq: 1, x: 1, y: 0 }, 'tab-a');
     positions.tick();
     expect(positions.position(entry.context.characterId)?.x).toBeCloseTo(
       WORLD_SPAWN_POSITION.x + 20 * STEP,
+    );
+
+    // Ein zweiter Tab zählt seine Sequenz selbst und steuert trotzdem.
+    world.input(principal, entry.context, { seq: 1, x: -1, y: 0 }, 'tab-b');
+    positions.tick();
+    world.input(principal, entry.context, { seq: 2, x: 0, y: 0 }, 'tab-b');
+    expect(positions.position(entry.context.characterId)?.x).toBeCloseTo(
+      WORLD_SPAWN_POSITION.x + 19 * STEP,
     );
 
     // Bewegung schreibt nicht pro Schritt in PostgreSQL (ADR 0015).
@@ -154,7 +162,7 @@ describe('WorldService (integration)', () => {
     const stored = await prisma.characterWorldState.findUniqueOrThrow({
       where: { characterId: entry.context.characterId },
     });
-    expect(stored.x).toBeCloseTo(WORLD_SPAWN_POSITION.x + 20 * STEP);
+    expect(stored.x).toBeCloseTo(WORLD_SPAWN_POSITION.x + 19 * STEP);
     expect(stored.y).toBe(WORLD_SPAWN_POSITION.y);
     expect(stored.revision).toBe(1);
   });
@@ -220,7 +228,7 @@ describe('WorldService (integration)', () => {
     await world.enter(principal, WORLD_ZONE_ID);
 
     expect(() =>
-      world.input(principal, entry.context, { seq: 1, x: 1, y: 0 }),
+      world.input(principal, entry.context, { seq: 1, x: 1, y: 0 }, 'tab-a'),
     ).toThrowError(
       expect.objectContaining({ code: 'WORLD_NOT_ENTERED' }) as Error,
     );

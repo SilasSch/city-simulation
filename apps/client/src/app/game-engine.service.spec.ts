@@ -226,18 +226,25 @@ describe('GameEngineService', () => {
     view.renderFrame(1_100);
     expect(sendInput).toHaveBeenLastCalledWith({ x: 0, y: 0 });
 
+    // Fokusverlust stoppt sofort – ohne weiteren Frame (versteckte Tabs rendern nicht).
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w' }));
+    view.renderFrame(1_200);
+    window.dispatchEvent(new Event('blur'));
+    expect(sendInput).toHaveBeenLastCalledWith({ x: 0, y: 0 });
+    const callsAfterBlur = sendInput.mock.calls.length;
+
     const input = document.createElement('input');
     document.body.appendChild(input);
     input.focus();
     input.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'd', bubbles: true }),
     );
-    view.renderFrame(1_200);
-    expect(sendInput).toHaveBeenCalledTimes(2);
+    view.renderFrame(1_300);
+    expect(sendInput).toHaveBeenCalledTimes(callsAfterBlur);
     input.remove();
 
     view.destroy();
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 's' }));
-    expect(sendInput).toHaveBeenCalledTimes(2);
+    expect(sendInput).toHaveBeenCalledTimes(callsAfterBlur);
   });
 });
