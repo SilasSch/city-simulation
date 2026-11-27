@@ -245,7 +245,18 @@ export class SimulationService implements OnModuleInit {
     return this.entity(characterId);
   }
 
+  /**
+   * Beendet eine laufende Interaktion ohne Belohnung. Eine bereits
+   * abgelaufene wird vorher regulär abgeschlossen, damit ihr Lohn nicht
+   * verloren geht (#102).
+   */
   async abortInteraction(characterId: string): Promise<void> {
+    const state = await this.prisma.characterWorldState.findUnique({
+      where: { characterId },
+      include: { character: { select: { name: true } } },
+    });
+    if (!state) return;
+    await this.materializeCompletedInteraction(characterId, state);
     await this.prisma.characterWorldState.updateMany({
       where: { characterId, interactionObjectId: { not: null } },
       data: {
