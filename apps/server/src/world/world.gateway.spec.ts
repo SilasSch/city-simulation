@@ -323,7 +323,7 @@ describe('World via RealtimeGateway (integration)', () => {
     expect(resolvePrincipal).toHaveBeenCalledTimes(1);
   });
 
-  it('enters market-lane with spawn snapshot and no NPCs', async () => {
+  it('starts new characters in central-square even when another zone is requested', async () => {
     const player = await createPlayer('market-lane@example.com');
     const { socket, connected } = connect(player.cookie);
     await connected;
@@ -331,24 +331,18 @@ describe('World via RealtimeGateway (integration)', () => {
     const response = await enter(socket, MARKET_LANE_ZONE_ID);
     expect(response.type).toBe(WORLD_SNAPSHOT_EVENT_TYPE);
     const snapshot = worldSnapshotPayloadSchema.parse(response.payload);
-    expect(snapshot.zoneId).toBe(MARKET_LANE_ZONE_ID);
+    expect(snapshot.zoneId).toBe(WORLD_ZONE_ID);
     expect(snapshot.selfCharacterId).toBe(player.characterId);
-    const self = snapshot.entities.find(
-      (entity) => entity.characterId === player.characterId,
-    );
-    expect(self).toMatchObject({
-      ...MARKET_LANE_SPAWN_POSITION,
-      kind: 'character',
-      name: 'Ayla',
-    });
-    expect(snapshot.entities.every((entity) => entity.kind !== 'npc')).toBe(
-      true,
-    );
+    expect(
+      snapshot.entities.find(
+        (entity) => entity.characterId === player.characterId,
+      ),
+    ).toMatchObject({ ...WORLD_SPAWN_POSITION, kind: 'character' });
 
     const stored = await prisma.characterWorldState.findUniqueOrThrow({
       where: { characterId: player.characterId! },
     });
-    expect(stored.zoneId).toBe(MARKET_LANE_ZONE_ID);
+    expect(stored.zoneId).toBe(WORLD_ZONE_ID);
   });
 
   it('transitions via portal, rejects out-of-range, and notifies peers', async () => {

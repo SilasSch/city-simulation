@@ -234,17 +234,26 @@ describe('WorldService (integration)', () => {
     );
   });
 
-  it('enters market-lane at its spawn without central-square NPCs', async () => {
+  it('resumes the persisted zone on re-entry instead of the requested one', async () => {
     const principal = await playerWithCharacter('market@example.com');
 
-    const entry = await world.enter(principal, MARKET_LANE_ZONE_ID);
+    // Ein neuer Character startet immer in central-square (#99).
+    const first = await world.enter(principal, MARKET_LANE_ZONE_ID);
+    expect(first.snapshot.zoneId).toBe(WORLD_ZONE_ID);
+
+    await prisma.characterWorldState.update({
+      where: { characterId: first.context.characterId },
+      data: { zoneId: MARKET_LANE_ZONE_ID, x: 30, y: 50 },
+    });
+    const entry = await world.enter(principal, WORLD_ZONE_ID);
     expect(entry.context.zoneId).toBe(MARKET_LANE_ZONE_ID);
     expect(entry.snapshot.zoneId).toBe(MARKET_LANE_ZONE_ID);
     const self = entry.snapshot.entities.find(
       (entity) => entity.characterId === entry.snapshot.selfCharacterId,
     );
     expect(self).toMatchObject({
-      ...MARKET_LANE_SPAWN_POSITION,
+      x: 30,
+      y: 50,
       kind: 'character',
       name: 'Ayla',
     });
@@ -255,10 +264,10 @@ describe('WorldService (integration)', () => {
     const stored = await prisma.characterWorldState.findUniqueOrThrow({
       where: { characterId: entry.context.characterId },
     });
-    expect(stored.zoneId).toBe(MARKET_LANE_ZONE_ID);
+    expect(stored).toMatchObject({ zoneId: MARKET_LANE_ZONE_ID, x: 30, y: 50 });
   });
 
-  it('rejects unknown zones and relocates when switching into market-lane', async () => {
+  it('rejects unknown zones and does not switch zones on re-entry', async () => {
     const principal = await playerWithCharacter('switch-zone@example.com');
     const square = await world.enter(principal, WORLD_ZONE_ID);
     walk(principal, square.context, 1, 0, 5);
@@ -267,21 +276,18 @@ describe('WorldService (integration)', () => {
       world.enter(principal, 'unknown-zone' as typeof WORLD_ZONE_ID),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
 
-    const lane = await world.enter(principal, MARKET_LANE_ZONE_ID);
-    expect(lane.snapshot.zoneId).toBe(MARKET_LANE_ZONE_ID);
-    expect(
-      lane.snapshot.entities.find(
-        (entity) => entity.characterId === lane.context.characterId,
-      ),
-    ).toMatchObject(MARKET_LANE_SPAWN_POSITION);
+    // Zonen wechselt man nur über Portale.
+    const again = await world.enter(principal, MARKET_LANE_ZONE_ID);
+    expect(again.snapshot.zoneId).toBe(WORLD_ZONE_ID);
+    const self = again.snapshot.entities.find(
+      (entity) => entity.characterId === again.context.characterId,
+    );
+    expect(self?.x).toBeCloseTo(WORLD_SPAWN_POSITION.x + 5 * STEP);
 
     const stored = await prisma.characterWorldState.findUniqueOrThrow({
-      where: { characterId: lane.context.characterId },
+      where: { characterId: again.context.characterId },
     });
-    expect(stored).toMatchObject({
-      zoneId: MARKET_LANE_ZONE_ID,
-      ...MARKET_LANE_SPAWN_POSITION,
-    });
+    expect(stored.zoneId).toBe(WORLD_ZONE_ID);
   });
 
   it('transitions via portal when in range and rejects out-of-range', async () => {
