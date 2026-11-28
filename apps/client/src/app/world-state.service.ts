@@ -21,6 +21,7 @@ import type {
   WorldZonePortalId,
 } from '@city/game-protocol';
 import { CharacterService } from './character.service';
+import type { InteractionTarget } from './interaction-target';
 import { RealtimeService } from './realtime.service';
 
 /** Letzte vom Server bestätigte Position der eigenen Figur samt Input-Sequenz. */
@@ -98,6 +99,21 @@ export class WorldStateService {
   interactNpc(npcCharacterId: string): void {
     if (!this.zoneId() || !this.selfEntity()) return;
     this.realtime.sendWorldInteract({ npcCharacterId });
+  }
+
+  /** Löst das per `E` oder Klick gewählte Ziel aus (Objekt, NPC, Portal). */
+  interactWith(target: InteractionTarget): void {
+    switch (target.kind) {
+      case 'object':
+        this.interact(target.id);
+        return;
+      case 'npc':
+        this.interactNpc(target.id);
+        return;
+      case 'portal':
+        this.transition(target.id);
+        return;
+    }
   }
 
   /** Client follows confirmed snapshot only — no optimistic zone jump. */

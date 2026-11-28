@@ -333,9 +333,25 @@ describe('WorldStateService', () => {
     );
 
     const npcId = CENTRAL_SQUARE_NPCS[0]!.characterId;
-    world.interactNpc(npcId);
+    world.interactWith({
+      kind: 'npc',
+      id: npcId,
+      label: 'E – Sprechen',
+      x: 42,
+      y: 60,
+    });
     expect(realtimeStub.sendWorldInteract).toHaveBeenCalledWith({
       npcCharacterId: npcId,
+    });
+    world.interactWith({
+      kind: 'object',
+      id: 'kiosk-north',
+      label: 'E – Arbeiten (+25)',
+      x: 40,
+      y: 42,
+    });
+    expect(realtimeStub.sendWorldInteract).toHaveBeenLastCalledWith({
+      objectId: 'kiosk-north',
     });
 
     serverMessages.next(
@@ -380,7 +396,13 @@ describe('WorldStateService', () => {
       ),
     );
 
-    world.transition('central-square-east');
+    world.interactWith({
+      kind: 'portal',
+      id: 'central-square-east',
+      label: 'E – Zur Marktgasse',
+      x: 95,
+      y: 50,
+    });
     expect(realtimeStub.sendWorldTransition).toHaveBeenCalledWith(
       'central-square-east',
     );
