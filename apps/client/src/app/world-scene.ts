@@ -10,6 +10,7 @@ import {
   worldZoneColliders,
   worldZonePortalsIn,
 } from '@city/game-protocol';
+import type { InteractionTarget } from './interaction-target';
 import type {
   WorldCollider,
   WorldEntity,
@@ -172,6 +173,7 @@ function interactionObjectGroup(object: WorldInteractionObject): THREE.Group {
   const box = OBJECT_BOXES[object.kind];
   const group = new THREE.Group();
   group.name = object.id;
+  group.userData['interactionTargetId'] = object.id;
   toScenePosition(object.x, object.y, 0, group.position);
 
   const mesh = new THREE.Mesh(
@@ -195,6 +197,7 @@ function portalGroup(
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = portal.id;
+  group.userData['interactionTargetId'] = portal.id;
   toScenePosition(portal.x, portal.y, 0, group.position);
 
   const gate = new THREE.Mesh(
@@ -413,6 +416,9 @@ export class EntityLayer {
   private createAvatar(entity: WorldEntity): EntityAvatar {
     const group = new THREE.Group();
     group.name = `entity:${entity.characterId}`;
+    if (entity.kind === 'npc') {
+      group.userData['interactionTargetId'] = entity.characterId;
+    }
 
     const body = new THREE.Mesh(
       this.bodyGeometry,
@@ -484,5 +490,48 @@ function interpolate(
       from.z + (to.z - from.z) * fraction,
     );
     return;
+  }
+}
+
+/** Markiert das aktuelle Interaktionsziel: Ring am Boden plus Aktionslabel. */
+export class InteractionMarker {
+  readonly root = new THREE.Group();
+  private readonly ring: THREE.Mesh<
+    THREE.TorusGeometry,
+    THREE.MeshBasicMaterial
+  >;
+  private readonly label: CSS2DObject;
+
+  constructor() {
+    this.root.name = 'interaction-marker';
+    this.ring = new THREE.Mesh(
+      new THREE.TorusGeometry(1.4, 0.08, 8, 48),
+      new THREE.MeshBasicMaterial({ color: 0xfacc15 }),
+    );
+    this.ring.rotation.x = -Math.PI / 2;
+    this.ring.position.y = 0.06;
+    this.root.add(this.ring);
+    this.label = createLabel('', {
+      color: '#1f2937',
+      background: 'rgba(250, 204, 21, 0.92)',
+    });
+    this.label.position.y = 3.2;
+    this.root.add(this.label);
+    this.show(null);
+  }
+
+  /** Zeigt das Ziel an oder blendet die Markierung aus. */
+  show(target: InteractionTarget | null): void {
+    this.root.visible = target !== null;
+    this.label.visible = target !== null;
+    if (!target) return;
+    toScenePosition(target.x, target.y, 0, this.root.position);
+    this.label.element.textContent = target.label;
+  }
+
+  dispose(): void {
+    detachLabels(this.root);
+    this.ring.geometry.dispose();
+    this.ring.material.dispose();
   }
 }

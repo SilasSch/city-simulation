@@ -4,7 +4,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { WorldEntity, WorldPoint, WorldZoneId } from '@city/game-protocol';
 import {
+  nearestInteraction,
+  type InteractionTarget,
+} from './interaction-target';
+import {
   EntityLayer,
+  InteractionMarker,
   buildZoneGreybox,
   disposeObject,
   zoneSkyColor,
@@ -25,6 +30,8 @@ export interface WorldScenePort {
   readonly selfAck: () => SelfAck | null;
   /** Sendet eine Bewegungsabsicht; liefert die Sequenz oder `null`. */
   sendInput(input: WorldPoint): number | null;
+  /** Löst das per `E` oder Klick gewählte Interaktionsziel aus. */
+  interactWith(target: InteractionTarget): void;
 }
 
 /** Schmale Renderer-Schnittstelle; Tests ersetzen WebGL durch einen Fake. */
@@ -44,6 +51,9 @@ function createWebGlRenderer(): WorldRenderer {
 }
 
 const FALLBACK_SIZE = { width: 800, height: 450 } as const;
+/** Ein Klick ist ein Zeigerdruck ohne nennenswerte Kamera-Drehung. */
+const CLICK_MAX_DISTANCE_PX = 6;
+const CLICK_MAX_DURATION_MS = 400;
 const CAMERA_OFFSET = new THREE.Vector3(0, 18, 18);
 const CAMERA_LOOK_HEIGHT = 1;
 
@@ -64,6 +74,10 @@ export class WorldView {
   private readonly pressedKeys = new Set<MovementKey>();
   private readonly selfMovement: SelfMovement;
   private lastAck: SelfAck | null = null;
+  private readonly interactionMarker = new InteractionMarker();
+  private interactionTarget: InteractionTarget | null = null;
+  private pointerDown: { x: number; y: number; t: number } | null = null;
+  private readonly raycaster = new THREE.Raycaster();
   private zoneGroup: THREE.Group | null = null;
   private zoneId: WorldZoneId | null = null;
   private lastFrameTime: number | null = null;
@@ -95,6 +109,7 @@ export class WorldView {
     sun.position.set(20, 35, 15);
     this.scene.add(sun);
     this.scene.add(this.entities.root);
+    this.scene.add(this.interactionMarker.root);
 
     this.camera.position.copy(CAMERA_OFFSET);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -118,6 +133,14 @@ export class WorldView {
     globalThis.addEventListener('keydown', this.handleKeydown);
     globalThis.addEventListener('keyup', this.handleKeyup);
     globalThis.addEventListener('blur', this.handleBlur);
+    this.renderer.domElement.addEventListener(
+      'pointerdown',
+      this.handlePointerDown,
+    );
+    this.renderer.domElement.addEventListener(
+      'pointerup',
+      this.handlePointerUp,
+    );
     globalThis.document?.addEventListener(
       'visibilitychange',
       this.handleVisibilityChange,
@@ -137,13 +160,11 @@ export class WorldView {
     const selfId = this.world?.selfCharacterId() ?? null;
     if (this.world) {
       const entities = this.world.entities();
+      const self =
+        entities.find((entity) => entity.characterId === selfId) ?? null;
       this.entities.sync(entities, selfId, zoneChanged, time);
-      this.updateSelfMovement(
-        entities.find((entity) => entity.characterId === selfId) ?? null,
-        zoneChanged,
-        deltaSeconds,
-        time,
-      );
+      this.updateSelfMovement(self, zoneChanged, deltaSeconds, time);
+      this.updateInteractionTarget(self, entities);
     }
     this.entities.update(time, selfId, this.selfMovement.position);
     this.followSelf(zoneChanged);
@@ -163,6 +184,14 @@ export class WorldView {
     globalThis.removeEventListener('keydown', this.handleKeydown);
     globalThis.removeEventListener('keyup', this.handleKeyup);
     globalThis.removeEventListener('blur', this.handleBlur);
+    this.renderer.domElement.removeEventListener(
+      'pointerdown',
+      this.handlePointerDown,
+    );
+    this.renderer.domElement.removeEventListener(
+      'pointerup',
+      this.handlePointerUp,
+    );
     globalThis.document?.removeEventListener(
       'visibilitychange',
       this.handleVisibilityChange,
@@ -174,6 +203,7 @@ export class WorldView {
       disposeObject(this.zoneGroup);
     }
     this.entities.dispose();
+    this.interactionMarker.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.labelRenderer.domElement.remove();
@@ -233,6 +263,25 @@ export class WorldView {
     this.selfMovement.advance(deltaSeconds);
   }
 
+  /** Nächstes Ziel in Reichweite markieren; während einer Interaktion keins. */
+  private updateInteractionTarget(
+    self: WorldEntity | null,
+    entities: readonly WorldEntity[],
+  ): void {
+    const position = this.selfMovement.position ?? self;
+    this.interactionTarget =
+      self && position && this.zoneId && self.interaction === null
+        ? nearestInteraction(position, this.zoneId, entities)
+        : null;
+    this.interactionMarker.show(this.interactionTarget);
+  }
+
+  private triggerInteraction(): boolean {
+    if (!this.interactionTarget || !this.world) return false;
+    this.world.interactWith(this.interactionTarget);
+    return true;
+  }
+
   /** Kamera folgt der eigenen Figur, Drehung und Zoom bleiben erhalten. */
   private followSelf(snap: boolean): void {
     const selfId = this.world?.selfCharacterId() ?? null;
@@ -265,11 +314,62 @@ export class WorldView {
       return;
     }
 
+    if (event.key.toLowerCase() === 'e') {
+      if (!event.repeat && this.triggerInteraction()) event.preventDefault();
+      return;
+    }
+
     const key = movementKeyFor(event.key);
     if (!key || !this.world) return;
 
     event.preventDefault();
     this.pressedKeys.add(key);
+  };
+
+  private readonly handlePointerDown = (event: PointerEvent): void => {
+    this.pointerDown = {
+      x: event.clientX,
+      y: event.clientY,
+      t: event.timeStamp,
+    };
+  };
+
+  /** Klick (ohne Kamera-Drehung) auf das markierte Ziel löst es aus. */
+  private readonly handlePointerUp = (event: PointerEvent): void => {
+    const down = this.pointerDown;
+    this.pointerDown = null;
+    if (
+      !down ||
+      !this.interactionTarget ||
+      Math.hypot(event.clientX - down.x, event.clientY - down.y) >
+        CLICK_MAX_DISTANCE_PX ||
+      event.timeStamp - down.t > CLICK_MAX_DURATION_MS
+    ) {
+      return;
+    }
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    this.raycaster.setFromCamera(
+      new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      ),
+      this.camera,
+    );
+    for (const hit of this.raycaster.intersectObjects(this.scene.children)) {
+      let object: THREE.Object3D | null = hit.object;
+      while (object && object.userData['interactionTargetId'] === undefined) {
+        object = object.parent;
+      }
+      if (!object) continue;
+      if (
+        object.userData['interactionTargetId'] === this.interactionTarget.id
+      ) {
+        this.triggerInteraction();
+      }
+      return;
+    }
   };
 
   private readonly handleKeyup = (event: KeyboardEvent): void => {

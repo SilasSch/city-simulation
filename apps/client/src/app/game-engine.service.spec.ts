@@ -7,6 +7,7 @@ import {
   type WorldRenderer,
   type WorldScenePort,
 } from './game-engine.service';
+import { nearestInteraction } from './interaction-target';
 import { movementKeyFor, worldInputFromKeys } from './world-input';
 
 /**
@@ -68,6 +69,7 @@ function worldPort(overrides: Partial<WorldScenePort> = {}): WorldScenePort {
     zoneId: () => 'central-square',
     selfAck: () => null,
     sendInput: vi.fn(() => null),
+    interactWith: vi.fn(),
     ...overrides,
   };
 }
@@ -246,5 +248,87 @@ describe('GameEngineService', () => {
     view.destroy();
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 's' }));
     expect(sendInput).toHaveBeenCalledTimes(callsAfterBlur);
+  });
+
+  it('picks the nearest interaction target in range with its action label', () => {
+    // Bank (62, 70) ist 2 entfernt, alles andere außer Reichweite.
+    expect(nearestInteraction({ x: 60, y: 70 }, 'central-square', [])).toEqual({
+      kind: 'object',
+      id: 'bench-south',
+      label: 'E – Ausruhen',
+      x: 62,
+      y: 70,
+    });
+    // Snack (68, 55) ist näher als die Bank (62, 70).
+    expect(nearestInteraction({ x: 66, y: 60 }, 'central-square', [])?.id).toBe(
+      'snack-east',
+    );
+    // Ein NPC direkt daneben schlägt die Bank.
+    const npc = entity({
+      characterId: '00000000-0000-4000-8000-000000000003',
+      kind: 'npc',
+      name: 'Nachbar',
+      x: 59,
+      y: 70,
+    });
+    expect(
+      nearestInteraction({ x: 60, y: 70 }, 'central-square', [npc]),
+    ).toMatchObject({
+      kind: 'npc',
+      id: npc.characterId,
+      label: 'E – Sprechen',
+    });
+    expect(
+      nearestInteraction({ x: 92, y: 50 }, 'central-square', []),
+    ).toMatchObject({ kind: 'portal', label: 'E – Zur Marktgasse' });
+    expect(
+      nearestInteraction({ x: 50, y: 85 }, 'central-square', []),
+    ).toBeNull();
+    expect(nearestInteraction({ x: 26, y: 30 }, 'market-lane', [])?.label).toBe(
+      'E – Am Stand helfen (+20)',
+    );
+  });
+
+  it('triggers the nearest interaction with E but not from form fields or mid-interaction', () => {
+    let self = entity({ x: 60, y: 70 });
+    const interactWith = vi.fn<WorldScenePort['interactWith']>();
+    const view = new GameEngineService().createGame(
+      document.createElement('div'),
+      () => undefined,
+      worldPort({
+        entities: () => [self],
+        selfCharacterId: () => self.characterId,
+        interactWith,
+      }),
+      fakeRenderer,
+    );
+    view.renderFrame(0);
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e' }));
+    expect(interactWith).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'object', id: 'bench-south' }),
+    );
+
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'e', bubbles: true }),
+    );
+    input.remove();
+
+    self = {
+      ...self,
+      interaction: {
+        objectId: 'bench-south',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        endsAt: '2026-01-01T00:05:00.000Z',
+        progress: 0.1,
+      },
+    };
+    view.renderFrame(16);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e' }));
+    expect(interactWith).toHaveBeenCalledTimes(1);
+    view.destroy();
   });
 });
